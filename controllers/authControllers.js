@@ -46,3 +46,26 @@ exports.login = async (req, res) => {
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
+
+exports.getProfile = async (req, res) => {
+    try {
+        const authHeader = req.header('Authorization');
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ msg: "Acceso denegado, no hay token" });
+        }
+
+        const token = authHeader.split(" ")[1]; // Extrae solo el token
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret");
+        const user = await User.findById(decoded.id).select("username");
+
+        if (!user) {
+            return res.status(404).json({ msg: "Usuario no encontrado" });
+        }
+
+        res.json(user);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: "Error en el servidor" });
+    }
+};

@@ -1,10 +1,12 @@
 const Vehiculo = require('../models/Vehiculo');
 const Movimiento = require('../models/Movimiento'); 
+const precioHora = 2400;
+const precioAbono = 75000;
 
 // Crear Vehículo
 exports.createVehiculo = async (req, res) => {
     try {
-        const { patente, tipoVehiculo } = req.body;
+        const { patente, tipoVehiculo, abonado } = req.body;
 
         if (!patente || !tipoVehiculo ) {
             return res.status(400).json({ msg: "Faltan datos"});
@@ -15,8 +17,25 @@ exports.createVehiculo = async (req, res) => {
             return res.status(400).json({ msg: "Este vehículo ya está registrado"})
         }
 
-        const nuevoVehiculo = new Vehiculo({ patente, tipoVehiculo });
-        await nuevoVehiculo.save();
+        const nuevoVehiculo = new Vehiculo({ patente, tipoVehiculo, abonado });
+
+        if (abonado) {
+            nuevoVehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días
+            await nuevoVehiculo.save();
+
+            const nuevoMovimiento = new Movimiento({
+                patente,
+                operador: "Sistema",
+                tipoVehiculo,
+                metodoPago: "Efectivo", // Puedes permitir seleccionar el método de pago en el front
+                monto: precioAbono, // Monto de abono mensual, cambiar según corresponda
+                descripcion: "Pago de abono mensual"
+            });
+
+            await nuevoMovimiento.save();
+        } else {
+            await nuevoVehiculo.save();
+        }
 
         res.status(201).json({ msg: "Vehículo registrado correctamente", vehiculo: nuevoVehiculo });
     } catch (err) {
@@ -103,6 +122,8 @@ exports.registrarEntrada = async (req, res) => {
 exports.registrarSalida = async (req, res) => {
     try {
         const { patente } = req.params;
+        const { metodoPago } = req.body;
+
         let vehiculo = await Vehiculo.findOne({ patente });
 
         if (!vehiculo) {
@@ -122,7 +143,6 @@ exports.registrarSalida = async (req, res) => {
             return res.status(400).json({ msg: "No hay una entrada registrada para este vehículo." });
         }
 
-        // Validar entrada
         if (!ultimaEstadia.entrada) {
             return res.status(400).json({ msg: "La estadía registrada no tiene una entrada válida." });
         }
@@ -130,10 +150,9 @@ exports.registrarSalida = async (req, res) => {
         ultimaEstadia.salida = new Date();
 
         // Calcular tiempo de estadía
-        let tiempoEstadia = (new Date(ultimaEstadia.salida) - new Date(ultimaEstadia.entrada)) / 1000 / 60; // Minutos    
-
+        let tiempoEstadiaHoras = Math.ceil((new Date(ultimaEstadia.salida) - new Date(ultimaEstadia.entrada)) / 1000 / 60 / 60); // Redondear hacia arriba
         // Calcular costo
-        let costoTotal = Math.round((tiempoEstadia / 60) * 5000); // $5000 por hora
+        let costoTotal = tiempoEstadiaHoras * precioHora;
         ultimaEstadia.costoTotal = costoTotal;
 
         await vehiculo.save();
@@ -143,7 +162,7 @@ exports.registrarSalida = async (req, res) => {
             patente,
             operador: "Carlos",
             tipoVehiculo: vehiculo.tipoVehiculo,
-            metodoPago: "Efectivo",
+            metodoPago: metodoPago || "Efectivo",
             monto: costoTotal,
             descripcion: "Pago por estadía"
         });
