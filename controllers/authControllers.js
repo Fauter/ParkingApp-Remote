@@ -30,14 +30,12 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { username, password } = req.body;
-
         if (!username || !password) {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
         let user = await User.findOne({ username });
         if (!user) return res.status(400).json({ msg: "Credenciales incorrectas" });
-
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: "Credenciales incorrectas" });
 
