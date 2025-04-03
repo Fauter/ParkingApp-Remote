@@ -27,8 +27,9 @@ exports.createVehiculo = async (req, res) => {
                 patente,
                 operador: "Sistema",
                 tipoVehiculo,
-                metodoPago: "Efectivo", // Puedes permitir seleccionar el método de pago en el front
-                monto: precioAbono, // Monto de abono mensual, cambiar según corresponda
+                metodoPago: "Efectivo", 
+                factura: "No",
+                monto: precioAbono, 
                 descripcion: "Pago de abono mensual"
             });
 
