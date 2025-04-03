@@ -122,7 +122,7 @@ exports.registrarEntrada = async (req, res) => {
 exports.registrarSalida = async (req, res) => {
     try {
         const { patente } = req.params;
-        const { metodoPago } = req.body;
+        const { metodoPago, factura } = req.body;
 
         let vehiculo = await Vehiculo.findOne({ patente });
 
@@ -164,7 +164,8 @@ exports.registrarSalida = async (req, res) => {
             tipoVehiculo: vehiculo.tipoVehiculo,
             metodoPago: metodoPago || "Efectivo",
             monto: costoTotal,
-            descripcion: "Pago por estadía"
+            factura: factura || "No",
+            descripcion: `Pago por estadía  x${tiempoEstadiaHoras} Hora/s`
         });
 
         await nuevoMovimiento.save();
