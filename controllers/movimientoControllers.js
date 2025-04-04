@@ -9,7 +9,7 @@ exports.registrarMovimiento = async (req, res) => {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
-        const nuevoMovimiento = new Movimiento({ patente, operador, tipoVehiculo, metodoPago, monto, descripcion });
+        const nuevoMovimiento = new Movimiento({ patente, operador, tipoVehiculo, metodoPago, factura, monto, descripcion });
         await nuevoMovimiento.save();
 
         res.status(201).json({ msg: "Movimiento registrado", movimiento: nuevoMovimiento });

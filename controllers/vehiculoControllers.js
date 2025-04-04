@@ -1,7 +1,6 @@
 const Vehiculo = require('../models/Vehiculo');
 const Movimiento = require('../models/Movimiento'); 
-const precioHora = 2400;
-const precioAbono = 75000;
+const { preciosHora, precioAbono } = require('../utils/precios.js');
 
 // Crear Vehículo
 exports.createVehiculo = async (req, res) => {
@@ -153,23 +152,11 @@ exports.registrarSalida = async (req, res) => {
         // Calcular tiempo de estadía
         let tiempoEstadiaHoras = Math.ceil((new Date(ultimaEstadia.salida) - new Date(ultimaEstadia.entrada)) / 1000 / 60 / 60); // Redondear hacia arriba
         // Calcular costo
-        let costoTotal = tiempoEstadiaHoras * precioHora;
+        let precioPorHora = preciosHora[vehiculo.tipoVehiculo.toLowerCase()] || preciosHora["auto"]; // default si no lo encuentra
+        let costoTotal = tiempoEstadiaHoras * precioPorHora;
         ultimaEstadia.costoTotal = costoTotal;
 
         await vehiculo.save();
-
-        // Registrar movimiento en la caja
-        const nuevoMovimiento = new Movimiento({
-            patente,
-            operador: "Carlos",
-            tipoVehiculo: vehiculo.tipoVehiculo,
-            metodoPago: metodoPago || "Efectivo",
-            monto: costoTotal,
-            factura: factura || "No",
-            descripcion: `Pago por estadía  x${tiempoEstadiaHoras} Hora/s`
-        });
-
-        await nuevoMovimiento.save();
         res.json({ msg: "Salida registrada", vehiculo, costoTotal });
 
     } catch (err) {
