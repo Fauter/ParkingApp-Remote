@@ -1,0 +1,17 @@
+{
+  "auto": {
+    "hora": 2400,
+    "media": 1600,
+    "estadia": 4200
+  },
+  "camioneta": {
+    "hora": 3900,
+    "media": 2000,
+    "estadia": 5000
+  },
+  "moto": {
+    "hora": 1000,
+    "media": 600,
+    "estadia": 2000
+  }
+}

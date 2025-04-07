@@ -6,6 +6,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes.js');
 const vehiculoRoutes = require('./routes/vehiculoRoutes'); 
 const movimientoRoutes = require('./routes/movimientoRoutes');
+const preciosRoutes = require('./routes/precios');
 
 const app = express();
 app.use(express.json());
@@ -18,6 +19,7 @@ mongoose.connect(process.env.MONGO_URI)
 app.use('/api/auth', authRoutes);
 app.use('/api/vehiculos', vehiculoRoutes);
 app.use('/api/movimientos', movimientoRoutes);
+app.use('/api/precios', preciosRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`));
