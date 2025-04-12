@@ -1,17 +1,20 @@
 {
   "auto": {
-    "hora": 2400,
-    "media": 1600,
-    "estadia": 4200
+    "hora": 2500,
+    "dia": 30000,
+    "semana": 50000,
+    "mensual": 75000
   },
   "camioneta": {
-    "hora": 3900,
-    "media": 2000,
-    "estadia": 5000
+    "hora": 4000,
+    "dia": 48000,
+    "mensual": 120000,
+    "semana": 80000
   },
   "moto": {
     "hora": 1000,
-    "media": 600,
-    "estadia": 2000
+    "dia": 12500,
+    "mensual": 31000,
+    "semana": 20000
   }
 }

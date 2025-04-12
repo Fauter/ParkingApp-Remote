@@ -4,9 +4,9 @@ const jwt = require('jsonwebtoken');
 
 exports.register = async (req, res) => {
     try {
-        const { username, password, role } = req.body;
+        const { nombre, apellido, username, password, role } = req.body;
 
-        if (!username || !password) {
+        if (!nombre || !apellido || !username || !password) {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
@@ -16,13 +16,25 @@ exports.register = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        user = new User({ username, password: hashedPassword, role: role || 'user' });
+        user = new User({
+            nombre,
+            apellido,
+            username,
+            password: hashedPassword,
+            role: role || 'operador'
+        });
+
         await user.save();
 
-        const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || "default_secret", { expiresIn: "1h" });
+        const token = jwt.sign(
+            { id: user.id, role: user.role },
+            process.env.JWT_SECRET || "default_secret",
+            { expiresIn: "1h" }
+        );
 
-        res.status(201).json({ msg: "Usuario registrado" });
+        res.status(201).json({ msg: "Usuario registrado", token });
     } catch (err) {
+        console.error(err); // Esto te muestra el error real en consola
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
@@ -47,6 +59,15 @@ exports.login = async (req, res) => {
     }
 };
 
+exports.getAllUsers = async (req, res) => {
+    try {
+      const users = await User.find().select("-password"); // Excluir contraseña por seguridad
+      res.json(users);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ msg: "Error al obtener los usuarios" });
+    }
+};
 exports.getProfile = async (req, res) => {
     try {
         const authHeader = req.header('Authorization');
@@ -67,5 +88,15 @@ exports.getProfile = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ msg: "Error en el servidor" });
+    }
+};
+
+exports.deleteAllUsers = async (req, res) => {
+    try {
+        await User.deleteMany({});
+        res.json({ msg: "Todos los usuarios fueron eliminados" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: "Error al borrar los usuarios" });
     }
 };

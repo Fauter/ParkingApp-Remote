@@ -15,25 +15,16 @@ router.put('/:vehiculo', (req, res) => {
     const { vehiculo } = req.params;
     const nuevosPrecios = req.body;
 
-    // Validar tipo de vehículo
     if (!tiposValidos.includes(vehiculo)) {
         return res.status(400).json({ error: 'Tipo de vehículo inválido' });
     }
 
-    // Validar que vengan los tres campos numéricos
-    const { hora, media, estadia } = nuevosPrecios;
-    if (
-        typeof hora !== 'number' ||
-        typeof media !== 'number' ||
-        typeof estadia !== 'number'
-    ) {
-        return res.status(400).json({
-            error: 'Los campos hora, media y estadia son requeridos y deben ser números'
-        });
+    if (!nuevosPrecios || typeof nuevosPrecios !== 'object') {
+        return res.status(400).json({ error: 'Debes enviar un objeto con los precios' });
     }
 
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    data[vehiculo] = { hora, media, estadia };
+    data[vehiculo] = nuevosPrecios;
 
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     res.json({ message: 'Precios actualizados correctamente' });

@@ -78,6 +78,16 @@ exports.getVehiculoByPatente = async (req, res) => {
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
+// Obtener tipos de Vehículo desde Model
+exports.getTiposVehiculo = (req, res) => {
+    try {
+        const tipos = Vehiculo.schema.path('tipoVehiculo').enumValues;
+        res.json(tipos);
+    } catch (err) {
+        console.error("💥 Error al obtener tipos de vehículo:", err);
+        res.status(500).json({ msg: "Error del servidor" });
+    }
+};
 
 // Registro de Entrada & Salida
 exports.registrarEntrada = async (req, res) => {

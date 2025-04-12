@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const VehiculoSchema = new mongoose.Schema({
     patente: { type: String, required: true, unique: true }, 
-    tipoVehiculo: { type: String, enum: ['auto', 'camioneta', 'moto'], required: true }, 
+    tipoVehiculo: { type: String, required: true }, // <-- sin enum
     abonado: { type: Boolean, default: false },
     abonoExpira: { type: Date, default: null },
     cashback: { type: Number, default: 0 }, 

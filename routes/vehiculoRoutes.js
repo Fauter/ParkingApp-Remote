@@ -3,6 +3,7 @@ const {
     createVehiculo, 
     getVehiculos, 
     getVehiculoByPatente, 
+    getTiposVehiculo,
     updateAbono, 
     registrarEntrada,
     registrarSalida,
@@ -12,6 +13,7 @@ const router = express.Router();
 
 router.post('/', createVehiculo);
 router.get('/', getVehiculos);
+router.get('/tipos', getTiposVehiculo);
 router.get('/:patente', getVehiculoByPatente);
 router.put('/:patente/registrarEntrada', registrarEntrada); 
 router.put('/:patente/registrarSalida', registrarSalida); 

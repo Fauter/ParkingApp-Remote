@@ -5,8 +5,11 @@ const cors = require('cors');
 
 const authRoutes = require('./routes/authRoutes.js');
 const vehiculoRoutes = require('./routes/vehiculoRoutes'); 
+const tipoVehiculoRoutes = require('./routes/tipoVehiculoRoutes');
 const movimientoRoutes = require('./routes/movimientoRoutes');
+const tarifaRoutes = require('./routes/tarifaRoutes');
 const preciosRoutes = require('./routes/precios');
+
 
 const app = express();
 app.use(express.json());
@@ -18,7 +21,9 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.use('/api/auth', authRoutes);
 app.use('/api/vehiculos', vehiculoRoutes);
+app.use('/api/tipos-vehiculo', tipoVehiculoRoutes);
 app.use('/api/movimientos', movimientoRoutes);
+app.use('/api/tarifas', tarifaRoutes); 
 app.use('/api/precios', preciosRoutes);
 
 const PORT = process.env.PORT || 5000;
