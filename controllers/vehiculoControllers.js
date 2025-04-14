@@ -10,6 +10,7 @@ function obtenerPrecios() {
 }
 
 // Crear Vehículo
+// Crear Vehículo
 exports.createVehiculo = async (req, res) => {
     try {
         const { patente, tipoVehiculo, abonado } = req.body;
@@ -18,41 +19,53 @@ exports.createVehiculo = async (req, res) => {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
-        let vehiculoExistente = await Vehiculo.findOne({ patente });
-        if (vehiculoExistente) {
-            return res.status(400).json({ msg: "Este vehículo ya está registrado" });
+        let vehiculo = await Vehiculo.findOne({ patente });
+
+        if (!vehiculo) {
+            // Si no existe, lo creo como siempre
+            vehiculo = new Vehiculo({ patente, tipoVehiculo, abonado });
+
+            if (abonado) {
+                const precios = obtenerPrecios();
+                const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
+
+                vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días
+
+                const nuevoMovimiento = new Movimiento({
+                    patente,
+                    operador: "Sistema",
+                    tipoVehiculo,
+                    metodoPago: "Efectivo",
+                    factura: "No",
+                    monto: precioAbono,
+                    descripcion: "Pago de abono mensual"
+                });
+
+                await nuevoMovimiento.save();
+            }
+
+            // Registrar primera entrada en estadiaActual
+            vehiculo.estadiaActual = { entrada: new Date() };
+            await vehiculo.save();
+
+            return res.status(201).json({ msg: "Vehículo creado y entrada registrada", vehiculo });
         }
 
-        const nuevoVehiculo = new Vehiculo({ patente, tipoVehiculo, abonado });
-
-        if (abonado) {
-            const precios = obtenerPrecios();
-            const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
-
-            nuevoVehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días
-            await nuevoVehiculo.save();
-
-            const nuevoMovimiento = new Movimiento({
-                patente,
-                operador: "Sistema",
-                tipoVehiculo,
-                metodoPago: "Efectivo",
-                factura: "No",
-                monto: precioAbono,
-                descripcion: "Pago de abono mensual"
-            });
-
-            await nuevoMovimiento.save();
-        } else {
-            await nuevoVehiculo.save();
+        // Si ya existía, registrar una nueva entrada
+        if (vehiculo.estadiaActual.entrada) {
+            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
         }
 
-        res.status(201).json({ msg: "Vehículo registrado correctamente", vehiculo: nuevoVehiculo });
+        // Registrar una nueva entrada en estadiaActual
+        vehiculo.estadiaActual = { entrada: new Date() };
+        await vehiculo.save();
+
+        res.status(200).json({ msg: "Entrada registrada para vehículo existente", vehiculo });
     } catch (err) {
+        console.error("💥 Error en createVehiculo:", err);
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
-
 
 // Obtener Vehículos
 exports.getVehiculos = async (req, res) => {
@@ -98,16 +111,23 @@ exports.registrarEntrada = async (req, res) => {
             return res.status(404).json({ msg: "Vehículo no encontrado" });
         }
 
-        if (!vehiculo.historialEstadias) vehiculo.historialEstadias = [];
+        // Verificamos que no haya una estadía en curso
+        const tieneEstadiaEnCurso = vehiculo.historialEstadias?.some(e => !e.salida);
+        if (tieneEstadiaEnCurso) {
+            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
+        }
 
+        // Registrar una nueva entrada
         vehiculo.historialEstadias.push({ entrada: new Date() });
         await vehiculo.save();
-        res.json({ msg: "Entrada registrada", vehiculo });
+
+        res.status(200).json({ msg: "Entrada registrada para vehículo", vehiculo });
     } catch (err) {
         console.error("Error en registrarEntrada:", err);
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
+// Registrar Salida
 exports.registrarSalida = async (req, res) => {
     try {
         const { patente } = req.params;
@@ -116,27 +136,30 @@ exports.registrarSalida = async (req, res) => {
         let vehiculo = await Vehiculo.findOne({ patente });
         if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
 
-        if (!vehiculo.historialEstadias || !Array.isArray(vehiculo.historialEstadias)) {
-            return res.status(400).json({ msg: "No hay historial de estadías para este vehículo." });
-        }
-
-        let ultimaEstadia = vehiculo.historialEstadias.find(e => !e.salida);
-        if (!ultimaEstadia || !ultimaEstadia.entrada) {
+        // Verificamos que haya una estadía en curso
+        if (!vehiculo.estadiaActual.entrada) {
             return res.status(400).json({ msg: "No hay una estadía en curso." });
         }
 
-        ultimaEstadia.salida = new Date();
+        // Registrar salida
+        vehiculo.estadiaActual.salida = new Date();
+        let tiempoEstadiaHoras = Math.ceil((new Date(vehiculo.estadiaActual.salida) - new Date(vehiculo.estadiaActual.entrada)) / 1000 / 60 / 60);
 
-        let tiempoEstadiaHoras = Math.ceil((new Date(ultimaEstadia.salida) - new Date(ultimaEstadia.entrada)) / 1000 / 60 / 60);
+        // Obtener precios y calcular costo
         const precios = obtenerPrecios();
         const precioHora = precios[vehiculo.tipoVehiculo.toLowerCase()]?.hora || 0;
         let costoTotal = tiempoEstadiaHoras * precioHora;
-        ultimaEstadia.costoTotal = costoTotal;
+        vehiculo.estadiaActual.costoTotal = costoTotal;
+
+        // Mover la estadía a historialEstadias
+        vehiculo.historialEstadias.push(vehiculo.estadiaActual);
+        vehiculo.estadiaActual = {}; // Resetear estadiaActual
 
         await vehiculo.save();
+
         res.json({ msg: "Salida registrada", vehiculo, costoTotal });
     } catch (err) {
-        console.error("💥 Error en registrarSalida:", err);
+        console.error("Error en registrarSalida:", err);
         res.status(500).json({ msg: "Error del servidor" });
     }
 };

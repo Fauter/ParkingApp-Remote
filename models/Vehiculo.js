@@ -1,15 +1,20 @@
 const mongoose = require('mongoose');
 
 const VehiculoSchema = new mongoose.Schema({
-    patente: { type: String, required: true, unique: true }, 
-    tipoVehiculo: { type: String, required: true }, // <-- sin enum
+    patente: { type: String, required: true, unique: true },
+    tipoVehiculo: { type: String, required: true },
     abonado: { type: Boolean, default: false },
     abonoExpira: { type: Date, default: null },
-    cashback: { type: Number, default: 0 }, 
+    cashback: { type: Number, default: 0 },
+    estadiaActual: {
+        entrada: { type: Date },
+        salida: { type: Date },
+        costoTotal: { type: Number, default: 0 }
+    },
     historialEstadias: [{
-        entrada: { type: Date, required: true }, 
-        salida: { type: Date }, 
-        costoTotal: { type: Number, default: 0 } 
+        entrada: { type: Date, required: true },
+        salida: { type: Date },
+        costoTotal: { type: Number, default: 0 }
     }]
 }, { timestamps: true });
 
