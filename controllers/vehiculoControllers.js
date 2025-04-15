@@ -53,7 +53,7 @@ exports.createVehiculo = async (req, res) => {
 
         // Si ya existía, registrar una nueva entrada
         if (vehiculo.estadiaActual.entrada) {
-            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
+            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso Create" });
         }
 
         // Registrar una nueva entrada en estadiaActual
@@ -107,18 +107,18 @@ exports.registrarEntrada = async (req, res) => {
     try {
         const { patente } = req.params;
         let vehiculo = await Vehiculo.findOne({ patente });
+
         if (!vehiculo) {
             return res.status(404).json({ msg: "Vehículo no encontrado" });
         }
 
-        // Verificamos que no haya una estadía en curso
-        const tieneEstadiaEnCurso = vehiculo.historialEstadias?.some(e => !e.salida);
-        if (tieneEstadiaEnCurso) {
+        // ✅ Verificamos si ya tiene una estadía en curso
+        if (vehiculo.estadiaActual?.entrada) {
             return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
         }
 
         // Registrar una nueva entrada
-        vehiculo.historialEstadias.push({ entrada: new Date() });
+        vehiculo.estadiaActual = { entrada: new Date() };
         await vehiculo.save();
 
         res.status(200).json({ msg: "Entrada registrada para vehículo", vehiculo });
@@ -143,7 +143,9 @@ exports.registrarSalida = async (req, res) => {
 
         // Registrar salida
         vehiculo.estadiaActual.salida = new Date();
-        let tiempoEstadiaHoras = Math.ceil((new Date(vehiculo.estadiaActual.salida) - new Date(vehiculo.estadiaActual.entrada)) / 1000 / 60 / 60);
+        let tiempoEstadiaHoras = Math.ceil(
+            (vehiculo.estadiaActual.salida - vehiculo.estadiaActual.entrada) / 1000 / 60 / 60
+        );
 
         // Obtener precios y calcular costo
         const precios = obtenerPrecios();
@@ -151,9 +153,15 @@ exports.registrarSalida = async (req, res) => {
         let costoTotal = tiempoEstadiaHoras * precioHora;
         vehiculo.estadiaActual.costoTotal = costoTotal;
 
-        // Mover la estadía a historialEstadias
-        vehiculo.historialEstadias.push(vehiculo.estadiaActual);
-        vehiculo.estadiaActual = {}; // Resetear estadiaActual
+        // Mover la estadía al historial
+        vehiculo.historialEstadias.push({ ...vehiculo.estadiaActual });
+
+        // Limpiar estadiaActual de forma correcta
+        vehiculo.estadiaActual = {
+            entrada: null,
+            salida: null,
+            costoTotal: 0
+        };
 
         await vehiculo.save();
 
