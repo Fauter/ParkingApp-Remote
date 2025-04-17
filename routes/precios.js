@@ -15,10 +15,6 @@ router.put('/:vehiculo', (req, res) => {
     const { vehiculo } = req.params;
     const nuevosPrecios = req.body;
 
-    if (!tiposValidos.includes(vehiculo)) {
-        return res.status(400).json({ error: 'Tipo de vehículo inválido' });
-    }
-
     if (!nuevosPrecios || typeof nuevosPrecios !== 'object') {
         return res.status(400).json({ error: 'Debes enviar un objeto con los precios' });
     }

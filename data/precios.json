@@ -2,19 +2,40 @@
   "auto": {
     "hora": 2500,
     "dia": 30000,
-    "semana": 50000,
-    "mensual": 75000
+    "semana": 80000,
+    "mensual": 75000,
+    "5 horas": 11500,
+    "estadía": 40000,
+    "media estadía": 23000,
+    "6 horas": 14000
   },
   "camioneta": {
     "hora": 4000,
     "dia": 48000,
     "mensual": 120000,
-    "semana": 80000
+    "semana": 100000,
+    "5 horas": 18500,
+    "estadía": 64500,
+    "media estadía": 36000,
+    "6 horas": 22000
   },
   "moto": {
     "hora": 1000,
     "dia": 12500,
     "mensual": 31000,
-    "semana": 20000
+    "semana": 60000,
+    "5 horas": 4500,
+    "estadía": 20000,
+    "media estadía": 12000,
+    "6 horas": 5000
+  },
+  "plato volador": {
+    "hora": 5000,
+    "mensual": 13000,
+    "5 horas": 24000
+  },
+  "suv": {
+    "hora": 6000,
+    "5 horas": 29000
   }
 }

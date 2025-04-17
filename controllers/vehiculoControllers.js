@@ -1,7 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const axios = require('axios');
 const Vehiculo = require('../models/Vehiculo');
 const Movimiento = require('../models/Movimiento'); 
+const Tarifa = require('../models/Tarifa')
 
 function obtenerPrecios() {
     const filePath = path.join(__dirname, '../data/precios.json');
@@ -127,50 +129,98 @@ exports.registrarEntrada = async (req, res) => {
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
-// Registrar Salida
 exports.registrarSalida = async (req, res) => {
     try {
-        const { patente } = req.params;
-        const { metodoPago, factura } = req.body;
-
-        let vehiculo = await Vehiculo.findOne({ patente });
-        if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
-
-        // Verificamos que haya una estadía en curso
-        if (!vehiculo.estadiaActual.entrada) {
-            return res.status(400).json({ msg: "No hay una estadía en curso." });
+      const { patente } = req.params;
+      const { metodoPago, factura } = req.body;
+  
+      let vehiculo = await Vehiculo.findOne({ patente });
+      if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
+  
+      if (!vehiculo.estadiaActual.entrada) {
+        return res.status(400).json({ msg: "No hay una estadía en curso." });
+      }
+  
+      vehiculo.estadiaActual.salida = new Date();
+  
+      const tiempoMs = vehiculo.estadiaActual.salida - vehiculo.estadiaActual.entrada;
+      const tiempoMin = Math.ceil(tiempoMs / 1000 / 60);
+  
+      // Obtener tarifas y precios desde los endpoints
+      const [resTarifas, resPrecios] = await Promise.all([
+        axios.get("http://localhost:5000/api/tarifas"),
+        axios.get("http://localhost:5000/api/precios")
+      ]);
+  
+      const tarifas = resTarifas.data;
+      const precios = resPrecios.data;
+  
+      // Ordenar tarifas por duración total (minutos)
+      tarifas.sort((a, b) => {
+        const durA = a.dias * 1440 + a.horas * 60 + a.minutos;
+        const durB = b.dias * 1440 + b.horas * 60 + b.minutos;
+        return durA - durB;
+      });
+  
+      const tipoVehiculo = vehiculo.tipoVehiculo.toLowerCase();
+      let tarifaAplicada = null;
+      let cantidadVeces = 1;
+  
+      // Buscar tarifa que entre en el tiempo sin pasarse (y con tolerancia)
+      for (let i = tarifas.length - 1; i >= 0; i--) {
+        const tarifa = tarifas[i];
+        const duracionMin = tarifa.dias * 1440 + tarifa.horas * 60 + tarifa.minutos;
+        const toleranciaMin = tarifa.tolerancia || 0;
+        if (tiempoMin <= duracionMin + toleranciaMin) {
+          tarifaAplicada = tarifa;
         }
-
-        // Registrar salida
-        vehiculo.estadiaActual.salida = new Date();
-        let tiempoEstadiaHoras = Math.ceil(
-            (vehiculo.estadiaActual.salida - vehiculo.estadiaActual.entrada) / 1000 / 60 / 60
-        );
-
-        // Obtener precios y calcular costo
-        const precios = obtenerPrecios();
-        const precioHora = precios[vehiculo.tipoVehiculo.toLowerCase()]?.hora || 0;
-        let costoTotal = tiempoEstadiaHoras * precioHora;
-        vehiculo.estadiaActual.costoTotal = costoTotal;
-
-        // Mover la estadía al historial
-        vehiculo.historialEstadias.push({ ...vehiculo.estadiaActual });
-
-        // Limpiar estadiaActual de forma correcta
-        vehiculo.estadiaActual = {
-            entrada: null,
-            salida: null,
-            costoTotal: 0
-        };
-
-        await vehiculo.save();
-
-        res.json({ msg: "Salida registrada", vehiculo, costoTotal });
+      }
+  
+      // Si no encontró tarifa que se ajuste, usar la más grande varias veces
+      if (!tarifaAplicada) {
+        tarifaAplicada = tarifas[tarifas.length - 1];
+        const duracionTarifaMin = tarifaAplicada.dias * 1440 + tarifaAplicada.horas * 60 + tarifaAplicada.minutos;
+        cantidadVeces = Math.ceil(tiempoMin / duracionTarifaMin);
+        console.log(`⚠️ No se encontró tarifa directa. Aplicando tarifa más grande "${tarifaAplicada.nombre}" ${cantidadVeces} veces`);
+      }
+  
+      const duracionTarifaMin = tarifaAplicada.dias * 1440 + tarifaAplicada.horas * 60 + tarifaAplicada.minutos;
+      const toleranciaTarifaMin = tarifaAplicada.tolerancia || 0;
+      const totalUnidadTarifa = duracionTarifaMin + toleranciaTarifaMin;
+  
+      cantidadVeces = Math.ceil(tiempoMin / totalUnidadTarifa);
+  
+      const nombreTarifa = tarifaAplicada.nombre.toLowerCase();
+      const precioUnidad = precios[tipoVehiculo]?.[nombreTarifa] ?? 0;
+      const costoTotal = precioUnidad * cantidadVeces;
+  
+      // Guardar en historial
+      vehiculo.estadiaActual.costoTotal = costoTotal;
+      vehiculo.historialEstadias.push({ ...vehiculo.estadiaActual });
+  
+      // Reset estadía
+      vehiculo.estadiaActual = {
+        entrada: null,
+        salida: null,
+        costoTotal: 0,
+      };
+  
+      await vehiculo.save();
+  
+      res.json({
+        msg: "Salida registrada",
+        costoTotal,
+        tarifaAplicada: tarifaAplicada.nombre,
+        tiempoTotalMinutos: tiempoMin,
+        cantidadVeces
+      });
+  
     } catch (err) {
-        console.error("Error en registrarSalida:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+      console.error("Error en registrarSalida:", err);
+      res.status(500).json({ msg: "Error del servidor" });
     }
-};
+  };  
+  
 
 // Estadias
 exports.registrarEstadia = async (req, res) => {
