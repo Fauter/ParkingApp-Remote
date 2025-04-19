@@ -9,12 +9,14 @@ const VehiculoSchema = new mongoose.Schema({
     estadiaActual: {
         entrada: { type: Date },
         salida: { type: Date },
-        costoTotal: { type: Number, default: 0 }
+        costoTotal: { type: Number, default: 0 },
+        nombreTarifa: { type: String, default: null }
     },
     historialEstadias: [{
         entrada: { type: Date, required: true },
         salida: { type: Date },
-        costoTotal: { type: Number, default: 0 }
+        costoTotal: { type: Number, default: 0 },
+        nombreTarifa: { type: String }
     }]
 }, { timestamps: true });
 

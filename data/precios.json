@@ -17,7 +17,8 @@
     "5 horas": 18500,
     "estadía": 64500,
     "media estadía": 36000,
-    "6 horas": 22000
+    "6 horas": 22000,
+    "4 horas": 14000
   },
   "moto": {
     "hora": 1000,
@@ -27,15 +28,25 @@
     "5 horas": 4500,
     "estadía": 20000,
     "media estadía": 12000,
-    "6 horas": 5000
+    "6 horas": 5000,
+    "4 horas": 3500
   },
   "plato volador": {
     "hora": 5000,
-    "mensual": 13000,
-    "5 horas": 24000
+    "mensual": 130000,
+    "5 horas": 24000,
+    "media estadía": 14000,
+    "4 horas": 16000,
+    "estadía": 69000,
+    "semana": 120000
   },
   "suv": {
     "hora": 6000,
-    "5 horas": 29000
+    "5 horas": 29000,
+    "media estadía": 42000,
+    "4 horas": 18000,
+    "estadía": 71000,
+    "semana": 145000,
+    "mensual": 175000
   }
 }
