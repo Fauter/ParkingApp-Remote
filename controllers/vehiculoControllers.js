@@ -4,6 +4,8 @@ const axios = require('axios');
 const Vehiculo = require('../models/Vehiculo');
 const Movimiento = require('../models/Movimiento'); 
 const Tarifa = require('../models/Tarifa')
+const Abono = require('../models/Abono');
+
 
 function obtenerPrecios() {
     const filePath = path.join(__dirname, '../data/precios.json');
@@ -11,7 +13,6 @@ function obtenerPrecios() {
     return JSON.parse(data);
 }
 
-// Crear Vehículo
 // Crear Vehículo
 exports.createVehiculo = async (req, res) => {
     try {
@@ -147,8 +148,8 @@ exports.registrarSalida = async (req, res) => {
   
       // Obtener tarifas y precios desde los endpoints
       const [resTarifas, resPrecios] = await Promise.all([
-        axios.get("https://parkingapp-back.onrender.com/api/tarifas"),
-        axios.get("https://parkingapp-back.onrender.com/api/precios")
+        axios.get("http://localhost:5000/api/tarifas"),
+        axios.get("http://localhost:5000/api/precios")
       ]);
   
       const tarifas = resTarifas.data;
@@ -187,6 +188,7 @@ exports.registrarSalida = async (req, res) => {
       // Guardar en historial
       vehiculo.estadiaActual.costoTotal = costoTotal;
       vehiculo.estadiaActual.nombreTarifa = tarifaAplicada.nombre;
+      vehiculo.estadiaActual.tipoTarifa = tarifaAplicada.tipo;
       vehiculo.estadiaActual.tarifaAplicada = tarifaAplicada;
   
       vehiculo.historialEstadias.push({ ...vehiculo.estadiaActual });
@@ -196,7 +198,8 @@ exports.registrarSalida = async (req, res) => {
         entrada: null,
         salida: null,
         costoTotal: 0,
-        nombreTarifa: null
+        nombreTarifa: null,
+        tipoTarifa: null 
       };
   
       await vehiculo.save();
@@ -213,112 +216,30 @@ exports.registrarSalida = async (req, res) => {
       console.error("Error en registrarSalida:", err);
       res.status(500).json({ msg: "Error del servidor" });
     }
-  };
+};
+
+exports.asignarAbono = async (req, res) => {
+    try {
+      const vehiculoId = req.params.id;
+      const { abono } = req.body;
   
+      const vehiculo = await Vehiculo.findById(vehiculoId);
+      if (!vehiculo) {
+        return res.status(404).json({ message: 'Vehículo no encontrado' });
+      }
   
-
-// Estadias
-exports.registrarEstadia = async (req, res) => {
-    try {
-        const { patente, metodoPago, factura, operador } = req.body;
-        let vehiculo = await Vehiculo.findOne({ patente });
-        if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
-
-        const precios = obtenerPrecios();
-        const monto = precios[vehiculo.tipoVehiculo.toLowerCase()]?.estadia || 0;
-
-        vehiculo.historialEstadias.push({
-            entrada: new Date(),
-            salida: new Date(),
-            costoTotal: monto
-        });
-
-        await vehiculo.save();
-
-        const nuevoMovimiento = new Movimiento({
-            patente,
-            operador,
-            tipoVehiculo: vehiculo.tipoVehiculo,
-            metodoPago,
-            factura,
-            monto,
-            descripcion: "Estadía 24hs"
-        });
-
-        await nuevoMovimiento.save();
-        res.json({ msg: "Estadía registrada", vehiculo, monto });
-    } catch (err) {
-        console.error("💥 Error en registrarEstadia:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+      // Asignar el abono al vehículo
+      vehiculo.abono = abono;
+      vehiculo.abonado = true;  // Marcar el vehículo como abonado
+  
+      await vehiculo.save();
+      res.status(200).json({ message: 'Abono asignado correctamente', vehiculo });
+    } catch (error) {
+      console.error('Error al asignar abono al vehículo:', error);
+      res.status(500).json({ message: 'Error al asignar abono' });
     }
 };
-// Registrar Media Estadía
-exports.registrarMediaEstadia = async (req, res) => {
-    try {
-        const { patente, metodoPago, factura, operador } = req.body;
-        let vehiculo = await Vehiculo.findOne({ patente });
-        if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
-
-        const precios = obtenerPrecios();
-        const monto = precios[vehiculo.tipoVehiculo.toLowerCase()]?.media || 0;
-
-        vehiculo.historialEstadias.push({
-            entrada: new Date(),
-            salida: new Date(),
-            costoTotal: monto
-        });
-
-        await vehiculo.save();
-
-        const nuevoMovimiento = new Movimiento({
-            patente,
-            operador,
-            tipoVehiculo: vehiculo.tipoVehiculo,
-            metodoPago,
-            factura,
-            monto,
-            descripcion: "Media Estadía"
-        });
-
-        await nuevoMovimiento.save();
-        res.json({ msg: "Media estadía registrada", vehiculo, monto });
-    } catch (err) {
-        console.error("💥 Error en registrarMediaEstadia:", err);
-        res.status(500).json({ msg: "Error del servidor" });
-    }
-};
-
-exports.updateAbono = async (req, res) => {
-    try {
-        const { patente } = req.params;
-        const vehiculo = await Vehiculo.findOne({ patente });
-        if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
-
-        const precios = obtenerPrecios();
-        const precioAbono = precios[vehiculo.tipoVehiculo.toLowerCase()]?.estadia || 0;
-
-        vehiculo.abonado = true;
-        vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 días desde hoy
-        await vehiculo.save();
-
-        const nuevoMovimiento = new Movimiento({
-            patente,
-            operador: "Sistema",
-            tipoVehiculo: vehiculo.tipoVehiculo,
-            metodoPago: "Efectivo",
-            factura: "No",
-            monto: precioAbono,
-            descripcion: "Renovación de abono"
-        });
-
-        await nuevoMovimiento.save();
-
-        res.json({ msg: "Abono actualizado", vehiculo });
-    } catch (err) {
-        console.error("💥 Error en updateAbono:", err);
-        res.status(500).json({ msg: "Error del servidor" });
-    }
-};
+  
 
 // ELIMINAR TODOS LOS AUTOS
 exports.eliminarTodosLosVehiculos = async (req, res) => {

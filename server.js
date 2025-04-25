@@ -2,25 +2,34 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 
 const authRoutes = require('./routes/authRoutes.js');
 const vehiculoRoutes = require('./routes/vehiculoRoutes'); 
+const abonoRoutes = require('./routes/abonoRoutes');
 const tipoVehiculoRoutes = require('./routes/tipoVehiculoRoutes');
 const movimientoRoutes = require('./routes/movimientoRoutes');
-const tarifaRoutes = require('./routes/tarifaRoutes');
+const tarifaRoutes = require('./routes/tarifaRoutes'); 
 const preciosRoutes = require('./routes/precios');
 
-
 const app = express();
-app.use(express.json());
+
 app.use(cors());
+app.use(express.json());
+// Necesario para parsear datos de formularios (formData con archivos)
+app.use(express.urlencoded({ extended: true }));
+
+// Servir archivos estáticos desde /uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 mongoose.connect(process.env.MONGO_URI)
-.then(() => console.log("✅ Conectado a MongoDB Atlas"))
-.catch(err => console.error("❌ Error conectando a MongoDB:", err));
+  .then(() => console.log("✅ Conectado a MongoDB Atlas"))
+  .catch(err => console.error("❌ Error conectando a MongoDB:", err));
 
+// Rutas de tu app
 app.use('/api/auth', authRoutes);
 app.use('/api/vehiculos', vehiculoRoutes);
+app.use('/api/abonos', abonoRoutes);
 app.use('/api/tipos-vehiculo', tipoVehiculoRoutes);
 app.use('/api/movimientos', movimientoRoutes);
 app.use('/api/tarifas', tarifaRoutes); 

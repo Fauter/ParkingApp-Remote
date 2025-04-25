@@ -1,22 +1,25 @@
 const mongoose = require('mongoose');
+const Abono = require('./Abono');
 
 const VehiculoSchema = new mongoose.Schema({
     patente: { type: String, required: true, unique: true },
     tipoVehiculo: { type: String, required: true },
     abonado: { type: Boolean, default: false },
-    abonoExpira: { type: Date, default: null },
+    abono: { type: mongoose.Schema.Types.ObjectId, ref: 'Abono' },
     cashback: { type: Number, default: 0 },
     estadiaActual: {
         entrada: { type: Date },
         salida: { type: Date },
         costoTotal: { type: Number, default: 0 },
-        nombreTarifa: { type: String, default: null }
+        nombreTarifa: { type: String, default: null },
+        tipoTarifa: { type: String }
     },
     historialEstadias: [{
         entrada: { type: Date, required: true },
         salida: { type: Date },
         costoTotal: { type: Number, default: 0 },
-        nombreTarifa: { type: String }
+        nombreTarifa: { type: String },
+        tipoTarifa: { type: String }
     }]
 }, { timestamps: true });
 
