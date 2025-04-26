@@ -1,4 +1,5 @@
 const Abono = require('../models/Abono');
+const Vehiculo = require('../models/Vehiculo'); 
 const path = require('path');
 
 exports.getAbonos = async (req, res) => {
@@ -10,10 +11,12 @@ exports.registrarAbono = async (req, res) => {
   try {
     const { body, files } = req;
 
+    // Fecha de creación y expiración
     const fechaCreacion = new Date();
     const fechaExpiracion = new Date(fechaCreacion);
     fechaExpiracion.setMonth(fechaExpiracion.getMonth() + 1);
 
+    // Creamos el nuevo Abono
     const nuevoAbono = new Abono({
       ...body,
       fechaExpiracion,
@@ -23,7 +26,22 @@ exports.registrarAbono = async (req, res) => {
       fotoCedulaAzul: files.fotoCedulaAzul?.[0]?.filename || '',
     });
 
+    // Guardamos el Abono
     await nuevoAbono.save();
+
+    // Buscar el Vehiculo con la misma patente
+    const vehiculo = await Vehiculo.findOne({ patente: body.patente });
+
+    // Si encontramos el Vehiculo, lo actualizamos
+    if (vehiculo) {
+      vehiculo.abono = nuevoAbono._id;  // Vinculamos el Abono al Vehiculo
+      vehiculo.abonado = true;  // Actualizamos el estado de abonado a true
+      await vehiculo.save();  // Guardamos los cambios
+    } else {
+      console.error('Vehículo no encontrado con la patente:', body.patente);
+    }
+
+    // Respondemos con éxito
     res.status(201).json({ message: 'Abono registrado exitosamente', abono: nuevoAbono });
 
   } catch (error) {

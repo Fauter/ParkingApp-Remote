@@ -218,28 +218,37 @@ exports.registrarSalida = async (req, res) => {
     }
 };
 
-exports.asignarAbono = async (req, res) => {
+exports.asignarAbonoAVehiculo = async (req, res) => {
+    const { patente } = req.params;
+    const { abonoId } = req.body; // Se supone que el ID del abono recién creado se pasa en el cuerpo de la solicitud
+
     try {
-      const vehiculoId = req.params.id;
-      const { abono } = req.body;
-  
-      const vehiculo = await Vehiculo.findById(vehiculoId);
-      if (!vehiculo) {
-        return res.status(404).json({ message: 'Vehículo no encontrado' });
-      }
-  
-      // Asignar el abono al vehículo
-      vehiculo.abono = abono;
-      vehiculo.abonado = true;  // Marcar el vehículo como abonado
-  
-      await vehiculo.save();
-      res.status(200).json({ message: 'Abono asignado correctamente', vehiculo });
+        // 1. Buscar el vehículo por patente
+        const vehiculo = await Vehiculo.findOne({ patente });
+
+        if (!vehiculo) {
+            return res.status(404).json({ message: "Vehículo no encontrado" });
+        }
+
+        // 2. Buscar el abono por su ID
+        const abono = await Abono.findById(abonoId);
+
+        if (!abono) {
+            return res.status(404).json({ message: "Abono no encontrado" });
+        }
+
+        // 3. Actualizar el vehículo asignando el abono y cambiando el estado de abonado
+        vehiculo.abonado = true;
+        vehiculo.abono = abono._id; // Aquí guardamos solo el ID del abono, no el objeto completo
+
+        await vehiculo.save();
+
+        return res.status(200).json({ message: "Vehículo actualizado con éxito", vehiculo });
     } catch (error) {
-      console.error('Error al asignar abono al vehículo:', error);
-      res.status(500).json({ message: 'Error al asignar abono' });
+        console.error(error);
+        return res.status(500).json({ message: "Error al actualizar el vehículo" });
     }
 };
-  
 
 // ELIMINAR TODOS LOS AUTOS
 exports.eliminarTodosLosVehiculos = async (req, res) => {

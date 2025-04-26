@@ -4,7 +4,7 @@ const {
     getVehiculos, 
     getVehiculoByPatente, 
     getTiposVehiculo,
-    asignarAbono, 
+    asignarAbonoAVehiculo, 
     registrarEntrada,
     registrarSalida,
     eliminarTodosLosVehiculos
@@ -17,7 +17,7 @@ router.get('/tipos', getTiposVehiculo);
 router.get('/:patente', getVehiculoByPatente);
 router.put('/:patente/registrarEntrada', registrarEntrada); 
 router.put('/:patente/registrarSalida', registrarSalida); 
-router.put('/:patente/asignarAbono', asignarAbono);
+router.put("/asignar-abono/:patente", asignarAbonoAVehiculo);
 router.delete("/", eliminarTodosLosVehiculos); 
 
 module.exports = router;
