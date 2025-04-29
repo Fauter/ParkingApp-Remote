@@ -24,59 +24,59 @@ function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, pre
     .map(t => ({
       ...t,
       totalMin: (t.dias * 1440) + (t.horas * 60) + t.minutos,
+      nombreKey: t.nombre.toLowerCase(),
+      precio: precios[tipoVehiculoKey]?.[t.nombre.toLowerCase()] ?? Infinity
     }))
     .sort((a, b) => a.totalMin - b.totalMin);
 
   if (!tarifasHora.length) return 'No hay tarifas horarias configuradas.';
 
-  let tiempoRestante = minutosTotales;
-  const tarifasUsadas = {};
-  let costoTotal = 0;
+  const maxMinutos = minutosTotales + Math.max(...tarifasHora.map(t => t.totalMin)); // permitir "pasarse"
+  const dp = Array(maxMinutos + 1).fill(Infinity);
+  const backtrack = Array(maxMinutos + 1).fill(null);
+  dp[0] = 0;
 
-  while (tiempoRestante > 0) {
-    // Encontrar la tarifa más grande que se pueda aplicar sin pasarse
-    let tarifaAplicada = null;
-
-    for (let i = tarifasHora.length - 1; i >= 0; i--) {
-      const t = tarifasHora[i];
-      const tolerancia = t.tolerancia || 0;
-      const nombre = t.nombre.toLowerCase();
-      const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
-
-      if (tiempoRestante >= t.totalMin) {
-        // Si me paso pero dentro de la tolerancia, se redondea hacia abajo
-        if (tiempoRestante < t.totalMin + tolerancia) {
-          tiempoRestante = 0;
-        } else {
-          tiempoRestante -= t.totalMin;
-        }
-
-        tarifasUsadas[nombre] = tarifasUsadas[nombre] || { cantidad: 0, precio };
-        tarifasUsadas[nombre].cantidad += 1;
-        costoTotal += precio;
-
-        tarifaAplicada = true;
-        break;
+  for (let i = 0; i <= minutosTotales; i++) {
+    if (!isFinite(dp[i])) continue;
+    for (const tarifa of tarifasHora) {
+      const { totalMin, precio, nombreKey } = tarifa;
+      const siguiente = i + totalMin;
+      if (dp[i] + precio < dp[siguiente]) {
+        dp[siguiente] = dp[i] + precio;
+        backtrack[siguiente] = { nombreKey, totalMin, precio };
       }
-    }
-
-    if (!tarifaAplicada) {
-      // Si no aplicó ninguna tarifa (por ser muy poco tiempo), se cobra la mínima
-      const menorTarifa = tarifasHora[0];
-      const nombre = menorTarifa.nombre.toLowerCase();
-      const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
-
-      tarifasUsadas[nombre] = tarifasUsadas[nombre] || { cantidad: 0, precio };
-      tarifasUsadas[nombre].cantidad += 1;
-      costoTotal += precio;
-      tiempoRestante = 0;
     }
   }
 
-  // Armar resumen
+  // Buscar el menor costo posible desde minutosTotales en adelante
+  let mejorCosto = Infinity;
+  let mejorIndice = -1;
+  for (let i = minutosTotales; i < dp.length; i++) {
+    if (dp[i] < mejorCosto) {
+      mejorCosto = dp[i];
+      mejorIndice = i;
+    }
+  }
+
+  if (mejorIndice === -1 || !isFinite(mejorCosto)) {
+    return 'No hay precios configurados correctamente para este tipo de vehículo.';
+  }
+
+  // Reconstrucción de tarifas usadas
+  const tarifasUsadas = {};
+  let i = mejorIndice;
+  while (i > 0 && backtrack[i]) {
+    const { nombreKey, totalMin, precio } = backtrack[i];
+    tarifasUsadas[nombreKey] = tarifasUsadas[nombreKey] || { cantidad: 0, precio };
+    tarifasUsadas[nombreKey].cantidad += 1;
+    i -= totalMin;
+  }
+
   let resumen = '';
+  let costoTotal = 0;
   for (const [nombre, { cantidad, precio }] of Object.entries(tarifasUsadas)) {
     resumen += `${cantidad} x ${nombre.charAt(0).toUpperCase() + nombre.slice(1)} = $${cantidad * precio}\n`;
+    costoTotal += cantidad * precio;
   }
 
   return resumen.trim() + `\n\nTotal: $${costoTotal}`;
