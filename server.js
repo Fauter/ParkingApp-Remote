@@ -11,6 +11,8 @@ const tipoVehiculoRoutes = require('./routes/tipoVehiculoRoutes');
 const movimientoRoutes = require('./routes/movimientoRoutes');
 const tarifaRoutes = require('./routes/tarifaRoutes'); 
 const preciosRoutes = require('./routes/precios');
+const parametrosRoutes = require('./routes/parametros.js')
+const calcularTarifaRoutes = require('./routes/calcularTarifaRoutes.js')
 
 const app = express();
 
@@ -34,6 +36,8 @@ app.use('/api/tipos-vehiculo', tipoVehiculoRoutes);
 app.use('/api/movimientos', movimientoRoutes);
 app.use('/api/tarifas', tarifaRoutes); 
 app.use('/api/precios', preciosRoutes);
+app.use('/api/parametros', parametrosRoutes);
+app.use('/api/calcular-tarifa', calcularTarifaRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`));
