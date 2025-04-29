@@ -9,7 +9,8 @@
     "media estadía": 4000,
     "6 horas": 14000,
     "4 horas": 9000,
-    "5 minutos": 84
+    "5 minutos": 84,
+    "día": 7000
   },
   "camioneta": {
     "hora": 1500,
@@ -20,7 +21,9 @@
     "estadía": 64500,
     "media estadía": 6000,
     "6 horas": 22000,
-    "4 horas": 14000
+    "4 horas": 14000,
+    "día": 11000,
+    "5 minutos": 125
   },
   "moto": {
     "hora": 600,
@@ -31,7 +34,9 @@
     "estadía": 20000,
     "media estadía": 2400,
     "6 horas": 5000,
-    "4 horas": 3500
+    "4 horas": 3500,
+    "día": 4000,
+    "5 minutos": 50
   },
   "plato volador": {
     "hora": 5000,

@@ -1,94 +1,82 @@
 function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, precios, parametros } = {}) {
   if (!tipoVehiculo) return 'Debe seleccionar un tipo de vehículo.';
 
-  const horaStr = hora || '01:00';
   const entrada = inicio ? new Date(inicio) : new Date();
   if (isNaN(entrada)) return 'Fecha de inicio inválida';
 
-  const tiempoTotal = new Date(entrada);
-  tiempoTotal.setDate(tiempoTotal.getDate() + Number(dias || 0));
+  const [h, m] = (hora || '00:00').split(':').map(Number);
+  const salida = new Date(entrada);
+  salida.setDate(salida.getDate() + Number(dias || 0));
+  salida.setHours(salida.getHours() + h);
+  salida.setMinutes(salida.getMinutes() + m);
 
-  const [h, m] = horaStr.split(':').map(Number);
-  tiempoTotal.setHours(tiempoTotal.getHours() + h);
-  tiempoTotal.setMinutes(tiempoTotal.getMinutes() + m);
+  let minutosTotales = Math.ceil((salida - entrada) / 60000);
+  if (minutosTotales <= 0) return '';
 
-  const msTotal = tiempoTotal - entrada;
-  let minutosTotales = Math.ceil(msTotal / 1000 / 60);
-
+  const tipoVehiculoKey = tipoVehiculo.toLowerCase();
   const fraccionarDesdeMinutos = Number(parametros.fraccionarDesde || 0);
-  if (fraccionarDesdeMinutos > 0 && minutosTotales < fraccionarDesdeMinutos) {
+  if (fraccionarDesdeMinutos > 0 && minutosTotales <= fraccionarDesdeMinutos) {
     minutosTotales = fraccionarDesdeMinutos;
   }
-  if (minutosTotales <= 0) return 'Duración inválida';
 
-  // Filtrar solo las tarifas de tipo "hora"
-  const tarifasFiltradas = tarifas.filter(t => t.tipo === 'hora');
-
-  // Asegúrate de usar solo las tarifas filtradas en la lógica posterior
-  const tarifasOrdenadas = tarifasFiltradas
-    .map(t => {
-      const totalMin = t.dias * 1440 + t.horas * 60 + t.minutos;
-      return { ...t, totalMin };
-    })
+  const tarifasHora = tarifas
+    .filter(t => t.tipo === 'hora')
+    .map(t => ({
+      ...t,
+      totalMin: (t.dias * 1440) + (t.horas * 60) + t.minutos,
+    }))
     .sort((a, b) => a.totalMin - b.totalMin);
 
+  if (!tarifasHora.length) return 'No hay tarifas horarias configuradas.';
+
   let tiempoRestante = minutosTotales;
-  const tipoVehiculoKey = tipoVehiculo.toLowerCase();
-  let resumen = '';
-  let costoTotal = 0;
   const tarifasUsadas = {};
+  let costoTotal = 0;
 
-  for (let i = tarifasOrdenadas.length - 1; i >= 0; i--) {
-    const tarifa = tarifasOrdenadas[i];
-    const { totalMin, tolerancia } = tarifa;
-    const nombre = tarifa.nombre.toLowerCase();
-    const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
+  while (tiempoRestante > 0) {
+    // Encontrar la tarifa más grande que se pueda aplicar sin pasarse
+    let tarifaAplicada = null;
 
-    while (
-      tiempoRestante >= totalMin + tolerancia ||
-      (tiempoRestante >= totalMin && tolerancia === 0)
-    ) {
-      if (!tarifasUsadas[nombre]) {
-        tarifasUsadas[nombre] = { cantidad: 0, precio };
-      }
-      tarifasUsadas[nombre].cantidad += 1;
-      costoTotal += precio;
-      tiempoRestante -= totalMin;
-    }
+    for (let i = tarifasHora.length - 1; i >= 0; i--) {
+      const t = tarifasHora[i];
+      const tolerancia = t.tolerancia || 0;
+      const nombre = t.nombre.toLowerCase();
+      const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
 
-    if (tiempoRestante >= totalMin) {
-      const diferencia = tiempoRestante - totalMin;
-      if (diferencia <= tolerancia) {
-        tiempoRestante = 0;
-      } else {
-        if (!tarifasUsadas[nombre]) {
-          tarifasUsadas[nombre] = { cantidad: 0, precio };
+      if (tiempoRestante >= t.totalMin) {
+        // Si me paso pero dentro de la tolerancia, se redondea hacia abajo
+        if (tiempoRestante < t.totalMin + tolerancia) {
+          tiempoRestante = 0;
+        } else {
+          tiempoRestante -= t.totalMin;
         }
+
+        tarifasUsadas[nombre] = tarifasUsadas[nombre] || { cantidad: 0, precio };
         tarifasUsadas[nombre].cantidad += 1;
         costoTotal += precio;
-        tiempoRestante -= totalMin;
+
+        tarifaAplicada = true;
+        break;
       }
+    }
+
+    if (!tarifaAplicada) {
+      // Si no aplicó ninguna tarifa (por ser muy poco tiempo), se cobra la mínima
+      const menorTarifa = tarifasHora[0];
+      const nombre = menorTarifa.nombre.toLowerCase();
+      const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
+
+      tarifasUsadas[nombre] = tarifasUsadas[nombre] || { cantidad: 0, precio };
+      tarifasUsadas[nombre].cantidad += 1;
+      costoTotal += precio;
+      tiempoRestante = 0;
     }
   }
 
-  if (tiempoRestante > 0 && tarifasOrdenadas.length > 0) {
-    const tarifaMin = tarifasOrdenadas[0];
-    const nombre = tarifaMin.nombre.toLowerCase();
-    const precio = precios[tipoVehiculoKey]?.[nombre] ?? 0;
-
-    const cantidad = Math.ceil((tiempoRestante - tarifaMin.tolerancia) / tarifaMin.totalMin);
-    if (cantidad > 0) {
-      if (!tarifasUsadas[nombre]) {
-        tarifasUsadas[nombre] = { cantidad: 0, precio };
-      }
-      tarifasUsadas[nombre].cantidad += cantidad;
-      costoTotal += precio * cantidad;
-    }
-  }
-
-  for (let nombre in tarifasUsadas) {
-    const { cantidad, precio } = tarifasUsadas[nombre];
-    resumen += `${cantidad} x ${nombre.charAt(0).toUpperCase() + nombre.slice(1)} = $${precio * cantidad}\n`;
+  // Armar resumen
+  let resumen = '';
+  for (const [nombre, { cantidad, precio }] of Object.entries(tarifasUsadas)) {
+    resumen += `${cantidad} x ${nombre.charAt(0).toUpperCase() + nombre.slice(1)} = $${cantidad * precio}\n`;
   }
 
   return resumen.trim() + `\n\nTotal: $${costoTotal}`;
