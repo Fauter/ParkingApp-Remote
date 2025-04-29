@@ -15,9 +15,6 @@ function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, pre
 
   const tipoVehiculoKey = tipoVehiculo.toLowerCase();
   const fraccionarDesdeMinutos = Number(parametros.fraccionarDesde || 0);
-  if (fraccionarDesdeMinutos > 0 && minutosTotales <= fraccionarDesdeMinutos) {
-    minutosTotales = fraccionarDesdeMinutos;
-  }
 
   const tarifasHora = tarifas
     .filter(t => t.tipo === 'hora')
@@ -31,7 +28,7 @@ function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, pre
 
   if (!tarifasHora.length) return 'No hay tarifas horarias configuradas.';
 
-  const maxMinutos = minutosTotales + Math.max(...tarifasHora.map(t => t.totalMin)); // permitir "pasarse"
+  const maxMinutos = minutosTotales + Math.max(...tarifasHora.map(t => t.totalMin));
   const dp = Array(maxMinutos + 1).fill(Infinity);
   const backtrack = Array(maxMinutos + 1).fill(null);
   dp[0] = 0;
@@ -40,6 +37,17 @@ function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, pre
     if (!isFinite(dp[i])) continue;
     for (const tarifa of tarifasHora) {
       const { totalMin, precio, nombreKey } = tarifa;
+
+      // Reglas de fraccionamiento
+      if (
+        fraccionarDesdeMinutos > 0 &&
+        i < fraccionarDesdeMinutos &&
+        totalMin < fraccionarDesdeMinutos
+      ) {
+        // Esta tarifa es una fracción y todavía no se llegó al límite → saltar
+        continue;
+      }
+
       const siguiente = i + totalMin;
       if (dp[i] + precio < dp[siguiente]) {
         dp[siguiente] = dp[i] + precio;
