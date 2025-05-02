@@ -2,41 +2,44 @@
   "auto": {
     "hora": 1000,
     "dia": 30000,
-    "semana": 80000,
+    "semana": 30000,
     "mensual": 75000,
     "5 horas": 11500,
     "estadía": 40000,
     "media estadía": 4000,
     "6 horas": 14000,
-    "4 horas": 9000,
+    "4 horas": 3000,
     "5 minutos": 84,
-    "día": 7000
+    "día": 7000,
+    "8 horas": 5000
   },
   "camioneta": {
     "hora": 1500,
     "dia": 48000,
     "mensual": 120000,
-    "semana": 100000,
+    "semana": 45000,
     "5 horas": 18500,
     "estadía": 64500,
     "media estadía": 6000,
     "6 horas": 22000,
-    "4 horas": 14000,
+    "4 horas": 5000,
     "día": 11000,
-    "5 minutos": 125
+    "5 minutos": 125,
+    "8 horas": 9000
   },
   "moto": {
     "hora": 600,
     "dia": 12500,
     "mensual": 31000,
-    "semana": 60000,
+    "semana": 17000,
     "5 horas": 4500,
     "estadía": 20000,
     "media estadía": 2400,
     "6 horas": 5000,
-    "4 horas": 3500,
+    "4 horas": 2000,
     "día": 4000,
-    "5 minutos": 50
+    "5 minutos": 50,
+    "8 horas": 3500
   },
   "plato volador": {
     "hora": 5000,

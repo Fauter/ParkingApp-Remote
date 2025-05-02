@@ -148,8 +148,8 @@ exports.registrarSalida = async (req, res) => {
   
       // Obtener tarifas y precios desde los endpoints
       const [resTarifas, resPrecios] = await Promise.all([
-        axios.get("http://localhost:5000/api/tarifas"),
-        axios.get("http://localhost:5000/api/precios")
+        axios.get("https://parkingapp-back.onrender.com/api/tarifas"),
+        axios.get("https://parkingapp-back.onrender.com/api/precios")
       ]);
   
       const tarifas = resTarifas.data;
