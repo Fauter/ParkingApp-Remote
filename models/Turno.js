@@ -5,8 +5,8 @@ const TurnoSchema = new mongoose.Schema({
   tipoVehiculo: { type: String, required: true }, // auto, moto, etc.
   duracionHoras: { type: Number, required: true },
   precio: { type: Number, required: true },
-  metodoPago: { type: String, required: true }, // efectivo, tarjeta, etc.
-  factura: { type: String, enum: ['A', 'Final', 'No'], default: 'no' },  
+  metodoPago: { type: String, required: true },
+  factura: { type: String, enum: ['A', 'Final', 'No'], default: 'No' },
   inicio: { type: Date, default: Date.now },
   fin: { type: Date },
   usado: { type: Boolean, default: false },

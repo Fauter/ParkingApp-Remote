@@ -1,25 +1,22 @@
 const Turno = require('../models/Turno');
 const Vehiculo = require('../models/Vehiculo');
 const Tarifa = require('../models/Tarifa');
-const Movimiento = require('../models/Movimiento'); // Importamos el modelo Movimiento
+const Movimiento = require('../models/Movimiento');
 
 const crearTurno = async (req, res) => {
   try {
     const { patente, turnoId, metodoPago, factura, precio, duracionHoras, fechaFin } = req.body;
 
-    // Obtener datos del vehículo
     const vehiculo = await Vehiculo.findOne({ patente });
     if (!vehiculo) {
       return res.status(404).json({ error: 'Vehículo no encontrado' });
     }
 
-    // Obtener datos del turno desde la tarifa
     const tarifa = await Tarifa.findById(turnoId);
     if (!tarifa || tarifa.tipo !== 'turno') {
       return res.status(400).json({ error: 'Tarifa inválida' });
     }
 
-    // Crear nuevo turno
     const nuevoTurno = new Turno({
       patente,
       tipoVehiculo: vehiculo.tipoVehiculo,
@@ -28,21 +25,20 @@ const crearTurno = async (req, res) => {
       metodoPago,
       factura,
       fechaFin,
-      nombreTarifa: tarifa.nombre // Agregamos el nombre de la tarifa
+      nombreTarifa: tarifa.nombre
     });
 
     await nuevoTurno.save();
 
-    // Crear movimiento asociado al turno
     const movimiento = new Movimiento({
       patente,
       descripcion: `Pago por Turno (${tarifa.nombre})`,
-      operador: 'Carlos', // Operador por defecto
+      operador: 'Carlos',
       tipoVehiculo: vehiculo.tipoVehiculo,
       metodoPago,
       factura,
       monto: precio,
-      tipoTarifa: tarifa.nombre
+      tipoTarifa: 'turno' // <-- Esto está fijo ahora
     });
 
     await movimiento.save();
@@ -64,7 +60,18 @@ const obtenerTurnos = async (req, res) => {
   }
 };
 
+const eliminarTodosLosTurnos = async (req, res) => {
+    try {
+      const resultado = await Turno.deleteMany({});
+      res.json({ mensaje: 'Todos los turnos han sido eliminados.', resultado });
+    } catch (error) {
+      console.error('Error al eliminar turnos:', error);
+      res.status(500).json({ error: 'Error del servidor' });
+    }
+};
+
 module.exports = {
   crearTurno,
-  obtenerTurnos
+  obtenerTurnos,
+  eliminarTodosLosTurnos
 };
