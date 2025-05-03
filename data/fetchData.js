@@ -1,6 +1,6 @@
 const fetch = (...args) => import('node-fetch').then(mod => mod.default(...args));
 
-const BASE_URL = 'https://parkingapp-back.onrender.com/api';
+const BASE_URL = 'http://localhost:5000/api';
 
 const obtenerTarifas = async () => {
   const response = await fetch(`${BASE_URL}/tarifas`);
