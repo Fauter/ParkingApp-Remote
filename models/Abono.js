@@ -16,13 +16,14 @@ const abonoSchema = new mongoose.Schema({
   anio: Number,
   companiaSeguro: String,
   precio: Number,
-  tipoTarifa: {
-    type: String,
-    enum: ["mensual", "turno"],
+  // Eliminás tipoTarifa si ya no lo vas a usar
+  tipoAbono: {
+    nombre: String,
+    dias: Number,
   },
   metodoPago: String,
-  factura: String,   
-  tipoVehiculo: String, 
+  factura: String,
+  tipoVehiculo: String,
   fechaCreacion: {
     type: Date,
     default: Date.now,

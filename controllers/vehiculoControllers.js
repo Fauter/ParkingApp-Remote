@@ -41,7 +41,7 @@ exports.createVehiculo = async (req, res) => {
                     metodoPago: "Efectivo",
                     factura: "No",
                     monto: precioAbono,
-                    descripcion: "Pago de abono mensual"
+                    descripcion: "Pago de abono abono"
                 });
 
                 await nuevoMovimiento.save();
@@ -91,6 +91,27 @@ exports.getVehiculoByPatente = async (req, res) => {
 
         res.json(vehiculo);
     } catch (err) {
+        res.status(500).json({ msg: "Error del servidor" });
+    }
+};
+exports.getVehiculoById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Validar que el id sea un ObjectId válido para evitar errores
+        if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+            return res.status(400).json({ msg: "ID inválido" });
+        }
+
+        const vehiculo = await Vehiculo.findById(id);
+
+        if (!vehiculo) {
+            return res.status(404).json({ msg: "Vehículo no encontrado" });
+        }
+
+        res.json(vehiculo);
+    } catch (err) {
+        console.error("Error en getVehiculoById:", err);
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
@@ -148,14 +169,14 @@ exports.registrarSalida = async (req, res) => {
   
       // Obtener tarifas y precios desde los endpoints
       const [resTarifas, resPrecios] = await Promise.all([
-        axios.get("https://parkingapp-back.onrender.com/api/tarifas"),
-        axios.get("https://parkingapp-back.onrender.com/api/precios")
+        axios.get("http://localhost:5000/api/tarifas"),
+        axios.get("http://localhost:5000/api/precios")
       ]);
   
       const tarifas = resTarifas.data;
       const precios = resPrecios.data;
   
-      // Filtrar solo tarifas de tipo "hora" y "estadia" (excluir "turno" y "mensual")
+      // Filtrar solo tarifas de tipo "hora" y "estadia" (excluir "turno" y "abono")
       const tarifasHoraYEstadia = tarifas.filter(tarifa => tarifa.tipo === 'hora' || tarifa.tipo === 'estadia');
   
       let tarifaAplicada = null;

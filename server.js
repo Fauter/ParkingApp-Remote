@@ -9,11 +9,13 @@ const vehiculoRoutes = require('./routes/vehiculoRoutes');
 const abonoRoutes = require('./routes/abonoRoutes');
 const tipoVehiculoRoutes = require('./routes/tipoVehiculoRoutes');
 const movimientoRoutes = require('./routes/movimientoRoutes');
+const movimientoClienteRoutes = require('./routes/movimientoClienteRoutes');
 const tarifaRoutes = require('./routes/tarifaRoutes'); 
 const preciosRoutes = require('./routes/precios');
 const parametrosRoutes = require('./routes/parametros.js')
 const calcularTarifaRoutes = require('./routes/calcularTarifaRoutes.js')
 const turnoRoutes = require('./routes/turnoRoutes.js')
+const clienteRoutes = require('./routes/clienteRoutes.js')
 
 const app = express();
 
@@ -35,11 +37,14 @@ app.use('/api/vehiculos', vehiculoRoutes);
 app.use('/api/abonos', abonoRoutes);
 app.use('/api/tipos-vehiculo', tipoVehiculoRoutes);
 app.use('/api/movimientos', movimientoRoutes);
+app.use('/api/movimientosClientes', movimientoClienteRoutes);
 app.use('/api/tarifas', tarifaRoutes); 
 app.use('/api/precios', preciosRoutes);
 app.use('/api/parametros', parametrosRoutes);
 app.use('/api/calcular-tarifa', calcularTarifaRoutes);
 app.use('/api/turnos', turnoRoutes);
+app.use('/api/clientes', clienteRoutes);
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`));

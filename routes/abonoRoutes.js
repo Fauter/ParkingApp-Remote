@@ -4,7 +4,7 @@ const path    = require('path');
 const {
   getAbonos,
   getAbonoPorId,
-  registrarMensual,
+  registrarAbono,
   eliminarAbonos
 } = require('../controllers/abonoControllers');
 
@@ -34,7 +34,7 @@ const uploadFields = upload.fields([
 // Rutas
 router.get('/', getAbonos);
 router.get('/:id', getAbonoPorId);
-router.post('/registrar-mensual', uploadFields, registrarMensual);
+router.post('/registrar-abono', uploadFields, registrarAbono);
 router.delete('/', eliminarAbonos);
 
 module.exports = router;

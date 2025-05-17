@@ -1,17 +1,179 @@
-// controllers/abonoControllers.js
-const Abono    = require('../models/Abono');
+const Abono = require('../models/Abono');
 const Vehiculo = require('../models/Vehiculo');
-const path     = require('path');
+const Cliente = require('../models/Cliente');
 
-// Nota: Multer ya se configura en las rutas, así que aquí solo usamos req.files y req.body
+exports.registrarAbono = async (req, res) => {
+  try {
+    // En backend con multer para archivos, los datos normales vienen en req.body
+    // Los archivos vienen en req.files (objeto con arrays de archivos)
+
+    const { 
+      nombreApellido,
+      domicilio,
+      localidad,
+      telefonoParticular,
+      telefonoEmergencia,
+      domicilioTrabajo,
+      telefonoTrabajo,
+      email,
+      patente,
+      marca,
+      modelo,
+      color,
+      anio,
+      companiaSeguro,
+      metodoPago,
+      factura,
+      tipoVehiculo,
+      precio,
+    } = req.body;
+
+    // El campo tarifaSeleccionada lo enviaste como JSON string desde frontend, hay que parsearlo
+    const tarifaSeleccionada = req.body.tarifaSeleccionada ? JSON.parse(req.body.tarifaSeleccionada) : null;
+
+    console.log('Datos recibidos:', {
+      nombreApellido,
+      email,
+      patente,
+      marca,
+      modelo,
+      tipoVehiculo,
+      tarifaSeleccionada,
+      precio
+    });
+
+    // Validaciones mínimas
+    if (
+      !nombreApellido?.trim() ||
+      !email?.trim() ||
+      !patente?.trim() ||
+      !marca?.trim() ||
+      !modelo?.trim() ||
+      !tipoVehiculo?.trim() ||
+      !tarifaSeleccionada ||  // Aquí ya es objeto
+      precio == null          // aceptamos precio = 0
+    ) {
+      return res.status(400).json({ message: 'Faltan datos obligatorios para crear el abono.' });
+    }
+
+    // Extraer filenames si vienen archivos
+    const fotoSeguro = req.files?.fotoSeguro?.[0]?.filename || '';
+    const fotoDNI = req.files?.fotoDNI?.[0]?.filename || '';
+    const fotoCedulaVerde = req.files?.fotoCedulaVerde?.[0]?.filename || '';
+    const fotoCedulaAzul = req.files?.fotoCedulaAzul?.[0]?.filename || '';
+
+    // Buscar cliente por nombreApellido (insensible a mayúsculas)
+    let cliente = await Cliente.findOne({ nombreApellido: { $regex: `^${nombreApellido.trim()}$`, $options: 'i' } });
+    if (!cliente) {
+      cliente = await Cliente.findOne({ email });
+    }
+    if (!cliente) {
+      cliente = new Cliente({
+        nombreApellido: nombreApellido.trim(),
+        domicilio,
+        localidad,
+        telefonoParticular,
+        telefonoEmergencia,
+        domicilioTrabajo,
+        telefonoTrabajo,
+        email,
+        abonos: [],
+        vehiculos: [],
+        balance: 0
+      });
+      await cliente.save();
+    }
+
+    // Calcular fecha expiración sumando días
+    const fechaExpiracion = new Date();
+    const diasDuracion = parseInt(tarifaSeleccionada.dias, 10);
+    if (!isNaN(diasDuracion)) {
+      fechaExpiracion.setDate(fechaExpiracion.getDate() + diasDuracion);
+    }
+
+    // Crear nuevo abono
+    const nuevoAbono = new Abono({
+      nombreApellido: nombreApellido.trim(),
+      domicilio,
+      localidad,
+      telefonoParticular,
+      telefonoEmergencia,
+      domicilioTrabajo,
+      telefonoTrabajo,
+      email,
+      patente,
+      marca,
+      modelo,
+      color,
+      anio: Number(anio),
+      companiaSeguro,
+      precio: Number(precio),
+      metodoPago,
+      factura,
+      tipoVehiculo,
+      tipoAbono: {
+        nombre: tarifaSeleccionada.nombre,
+        dias: diasDuracion
+      },
+      fechaExpiracion,
+      fotoSeguro,
+      fotoDNI,
+      fotoCedulaVerde,
+      fotoCedulaAzul
+    });
+
+    const abonoGuardado = await nuevoAbono.save();
+
+    // Asociar abono al cliente (guardar solo ID)
+    if (!cliente.abonos.includes(abonoGuardado._id)) {
+      cliente.abonos.push(abonoGuardado._id);
+    }
+
+    // Buscar vehículo por patente
+    let vehiculo = await Vehiculo.findOne({ patente });
+
+    if (vehiculo) {
+      vehiculo.abono = abonoGuardado._id;
+      vehiculo.abonado = true;
+      await vehiculo.save();
+
+      if (!cliente.vehiculos.includes(vehiculo._id)) {
+        cliente.vehiculos.push(vehiculo._id);
+      }
+    } else {
+      vehiculo = new Vehiculo({
+        patente,
+        marca,
+        modelo,
+        color,
+        anio: Number(anio),
+        abono: abonoGuardado._id,
+        abonado: true
+      });
+      await vehiculo.save();
+      cliente.vehiculos.push(vehiculo._id);
+    }
+
+    await cliente.save();
+
+    return res.status(201).json({
+      message: 'Abono registrado exitosamente',
+      abono: abonoGuardado
+    });
+
+  } catch (error) {
+    console.error('Error al registrar abono:', error);
+    return res.status(500).json({ message: 'Error al registrar abono' });
+  }
+};
 
 exports.getAbonos = async (req, res) => {
   try {
-    const abonos = await Abono.find();
-    res.json(abonos);
+    const abonos = await Abono.find().sort({ createdAt: -1 });
+    res.status(200).json(abonos);
   } catch (error) {
-    console.error('Error al obtener los abonos:', error);
-    res.status(500).json({ message: 'Error al obtener los abonos' });
+    console.error('Error al obtener abonos:', error);
+    res.status(500).json({ message: 'Error al obtener abonos' });
   }
 };
 
@@ -19,102 +181,23 @@ exports.getAbonoPorId = async (req, res) => {
   try {
     const { id } = req.params;
     const abono = await Abono.findById(id);
-    if (!abono) return res.status(404).json({ message: 'Abono no encontrado' });
-    res.json(abono);
-  } catch (error) {
-    console.error('Error al obtener el abono:', error);
-    res.status(500).json({ message: 'Error al obtener el abono' });
-  }
-};
 
-exports.registrarMensual = async (req, res) => {
-  try {
-    const { body, files } = req;
-
-    // Extraer de req.body todos los campos que envía el front
-    const {
-      nombreApellido,
-      domicilio,
-      localidad,
-      telefonoParticular,
-      telefonoEmergencia,
-      domicilioTrabajo,
-      telefonoTrabajo,
-      email,
-      patente,
-      marca,
-      modelo,
-      color,
-      anio,
-      companiaSeguro,
-      metodoPago,
-      factura,
-      tipoVehiculo,
-      fechaExpiracion, // viene como string "YYYY-MM-DD"
-      precio,          // viene del frontend
-      tipoTarifa       // "mensual"
-    } = body;
-
-    // Obtener nombres de archivo subidos
-    const fotoSeguro      = files.fotoSeguro?.[0]?.filename      || '';
-    const fotoDNI         = files.fotoDNI?.[0]?.filename         || '';
-    const fotoCedulaVerde = files.fotoCedulaVerde?.[0]?.filename || '';
-    const fotoCedulaAzul  = files.fotoCedulaAzul?.[0]?.filename  || '';
-
-    // Construir el documento Abono
-    const nuevoAbono = new Abono({
-      nombreApellido,
-      domicilio,
-      localidad,
-      telefonoParticular,
-      telefonoEmergencia,
-      domicilioTrabajo,
-      telefonoTrabajo,
-      email,
-      patente,
-      marca,
-      modelo,
-      color,
-      anio,
-      companiaSeguro,
-      metodoPago,
-      factura,
-      tipoVehiculo,
-      // Convertir fechaExpiracion a Date si viene
-      fechaExpiracion: fechaExpiracion ? new Date(fechaExpiracion) : undefined,
-      precio: Number(precio),   // asegurar que sea número
-      tipoTarifa,               // "mensual"
-      fotoSeguro,
-      fotoDNI,
-      fotoCedulaVerde,
-      fotoCedulaAzul
-    });
-
-    // Guardar el Abono
-    const abonoGuardado = await nuevoAbono.save();
-
-    // Vincular al Vehículo si existe
-    const vehiculo = await Vehiculo.findOne({ patente });
-    if (vehiculo) {
-      vehiculo.abono   = abonoGuardado._id;
-      vehiculo.abonado = true;
-      await vehiculo.save();
+    if (!abono) {
+      return res.status(404).json({ message: 'Abono no encontrado' });
     }
 
-    return res.status(201).json({
-      message: 'Abono mensual registrado exitosamente',
-      abono: abonoGuardado
-    });
+    res.status(200).json(abono);
+
   } catch (error) {
-    console.error('Error al registrar abono mensual:', error);
-    return res.status(500).json({ message: 'Error al registrar abono mensual' });
+    console.error('Error al obtener abono por ID:', error);
+    res.status(500).json({ message: 'Error al obtener abono por ID' });
   }
 };
 
 exports.eliminarAbonos = async (req, res) => {
   try {
-    await Abono.deleteMany();
-    res.status(200).json({ message: 'Todos los abonos han sido eliminados exitosamente' });
+    await Abono.deleteMany({});
+    res.status(200).json({ message: 'Todos los abonos fueron eliminados.' });
   } catch (error) {
     console.error('Error al eliminar abonos:', error);
     res.status(500).json({ message: 'Error al eliminar abonos' });

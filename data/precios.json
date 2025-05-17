@@ -3,7 +3,7 @@
     "hora": 1000,
     "dia": 30000,
     "semana": 30000,
-    "mensual": 75000,
+    "abono": 75000,
     "5 horas": 11500,
     "estadía": 40000,
     "media estadía": 4000,
@@ -11,12 +11,15 @@
     "4 horas": 3000,
     "5 minutos": 84,
     "día": 7000,
-    "8 horas": 5000
+    "8 horas": 5000,
+    "mensual": 80000,
+    "quincena": 45000,
+    "semanal": 28000
   },
   "camioneta": {
     "hora": 1500,
     "dia": 48000,
-    "mensual": 120000,
+    "abono": 120000,
     "semana": 45000,
     "5 horas": 18500,
     "estadía": 64500,
@@ -25,12 +28,15 @@
     "4 horas": 5000,
     "día": 11000,
     "5 minutos": 125,
-    "8 horas": 9000
+    "8 horas": 9000,
+    "quincena": 75000,
+    "mensual": 150000,
+    "semanal": 40000
   },
   "moto": {
     "hora": 600,
     "dia": 12500,
-    "mensual": 31000,
+    "abono": 31000,
     "semana": 17000,
     "5 horas": 4500,
     "estadía": 20000,
@@ -39,11 +45,14 @@
     "4 horas": 2000,
     "día": 4000,
     "5 minutos": 50,
-    "8 horas": 3500
+    "8 horas": 3500,
+    "mensual": 55000,
+    "quincena": 30000,
+    "semanal": 15000
   },
   "plato volador": {
     "hora": 5000,
-    "mensual": 130000,
+    "abono": 130000,
     "5 horas": 24000,
     "media estadía": 14000,
     "4 horas": 16000,
@@ -57,6 +66,6 @@
     "4 horas": 18000,
     "estadía": 71000,
     "semana": 145000,
-    "mensual": 175000
+    "abono": 175000
   }
 }

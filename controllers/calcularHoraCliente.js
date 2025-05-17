@@ -1,4 +1,4 @@
-function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, precios, parametros } = {}) {
+function calcularHoraCliente({ tipoVehiculo, inicio, dias, hora, tarifas, precios, parametros } = {}) {
   if (!tipoVehiculo) return 'Debe seleccionar un tipo de vehículo.';
 
   const entrada = inicio ? new Date(inicio) : new Date();
@@ -90,4 +90,4 @@ function calcularDetalleCliente({ tipoVehiculo, inicio, dias, hora, tarifas, pre
   return resumen.trim() + `\n\nTotal: $${costoTotal}`;
 }
 
-module.exports = calcularDetalleCliente;
+module.exports = calcularHoraCliente;
