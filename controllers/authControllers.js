@@ -75,7 +75,7 @@ exports.getProfile = async (req, res) => {
             return res.status(401).json({ msg: "Acceso denegado, no hay token" });
         }
 
-        const token = authHeader.split(" ")[1]; // Extrae solo el token
+        const token = authHeader.split(" ")[1];
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret");
         const user = await User.findById(decoded.id).select("username");
@@ -86,6 +86,9 @@ exports.getProfile = async (req, res) => {
 
         res.json(user);
     } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ msg: "Token expirado" });
+        }
         console.error(error);
         res.status(500).json({ msg: "Error en el servidor" });
     }

@@ -28,19 +28,27 @@ exports.registrarAbono = async (req, res) => {
       precio,
     } = req.body;
 
-    // El campo tarifaSeleccionada lo enviaste como JSON string desde frontend, hay que parsearlo
-    const tarifaSeleccionada = req.body.tarifaSeleccionada ? JSON.parse(req.body.tarifaSeleccionada) : null;
+    let tarifaSeleccionada = req.body.tarifaSeleccionada;
 
-    console.log('Datos recibidos:', {
-      nombreApellido,
-      email,
-      patente,
-      marca,
-      modelo,
-      tipoVehiculo,
-      tarifaSeleccionada,
-      precio
-    });
+    // Si viene como string y empieza con '{' o '[', entonces parsear, sino dejarlo como string
+    if (typeof tarifaSeleccionada === 'string' && (tarifaSeleccionada.startsWith('{') || tarifaSeleccionada.startsWith('['))) {
+      try {
+        tarifaSeleccionada = JSON.parse(tarifaSeleccionada);
+      } catch (e) {
+        console.error('Error al parsear tarifaSeleccionada:', e);
+        tarifaSeleccionada = null;
+      }
+    }
+
+    // Si tarifaSeleccionada es string (id), deberías buscar el objeto tarifa en la base antes de usarlo
+    if (typeof tarifaSeleccionada === 'string') {
+      // Suponiendo que tienes un modelo Tarifa para buscar
+      const Tarifa = require('../models/Tarifa');
+      tarifaSeleccionada = await Tarifa.findById(tarifaSeleccionada);
+      if (!tarifaSeleccionada) {
+        return res.status(400).json({ message: 'Tarifa seleccionada no encontrada' });
+      }
+    }
 
     // Validaciones mínimas
     if (

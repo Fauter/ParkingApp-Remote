@@ -16,7 +16,10 @@ const abonoSchema = new mongoose.Schema({
   anio: Number,
   companiaSeguro: String,
   precio: Number,
-  // Eliminás tipoTarifa si ya no lo vas a usar
+  tipoTarifa: {
+    type: String,
+    default: 'abono'
+  },
   tipoAbono: {
     nombre: String,
     dias: Number,

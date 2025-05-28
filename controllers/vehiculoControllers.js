@@ -152,91 +152,27 @@ exports.registrarEntrada = async (req, res) => {
     }
 };
 exports.registrarSalida = async (req, res) => {
-    try {
-      const { patente } = req.params;
-      const { metodoPago, factura } = req.body;
-  
-      let vehiculo = await Vehiculo.findOne({ patente });
-      if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado" });
-  
-      if (!vehiculo.estadiaActual.entrada) {
-        return res.status(400).json({ msg: "No hay una estadía en curso." });
-      }
-  
-      vehiculo.estadiaActual.salida = new Date();
-      const tiempoMs = vehiculo.estadiaActual.salida - vehiculo.estadiaActual.entrada;
-      const tiempoMin = Math.ceil(tiempoMs / 1000 / 60);  // Convertir a minutos
-  
-      // Obtener tarifas y precios desde los endpoints
-      const [resTarifas, resPrecios] = await Promise.all([
-        axios.get("http://localhost:5000/api/tarifas"),
-        axios.get("http://localhost:5000/api/precios")
-      ]);
-  
-      const tarifas = resTarifas.data;
-      const precios = resPrecios.data;
-  
-      // Filtrar solo tarifas de tipo "hora" y "estadia" (excluir "turno" y "abono")
-      const tarifasHoraYEstadia = tarifas.filter(tarifa => tarifa.tipo === 'hora' || tarifa.tipo === 'estadia');
-  
-      let tarifaAplicada = null;
-      let cantidadVeces = 1;
-  
-      // Lógica para calcular el costo
-      let tipoVehiculo = vehiculo.tipoVehiculo.toLowerCase();
-  
-      if (tiempoMin <= 60) { // Menos de 1 hora
-        tarifaAplicada = tarifasHoraYEstadia.find(tarifa => tarifa.nombre === "Hora");
-        cantidadVeces = 1;
-      } else if (tiempoMin <= 240) { // Menos de 4 horas (no usar tarifa "turno")
-        tarifaAplicada = tarifasHoraYEstadia.find(tarifa => tarifa.nombre === "Hora");
-        cantidadVeces = Math.ceil(tiempoMin / 60); // Redondear al número más cercano de horas
-      } else if (tiempoMin <= 720) { // Menos de 12 horas
-        tarifaAplicada = tarifasHoraYEstadia.find(tarifa => tarifa.nombre === "Hora");
-        cantidadVeces = Math.ceil(tiempoMin / 60); // Redondear al número más cercano de horas
-      } else if (tiempoMin <= 720 + 90) { // Entre 12 y 13.5 horas (Media estadía)
-        tarifaAplicada = tarifasHoraYEstadia.find(tarifa => tarifa.nombre === "Media Estadía");
-        cantidadVeces = 1;
-      } else { // Más de 24 horas, aplicar tarifa de estadía
-        tarifaAplicada = tarifasHoraYEstadia.find(tarifa => tarifa.nombre === "Estadía");
-        cantidadVeces = Math.ceil(tiempoMin / (1440)); // Convertir el tiempo en días y redondear
-      }
-  
-      const nombreTarifa = tarifaAplicada.nombre.toLowerCase();
-      const precioUnidad = precios[tipoVehiculo]?.[nombreTarifa] ?? 0;
-      const costoTotal = precioUnidad * cantidadVeces;
-  
-      // Guardar en historial
-      vehiculo.estadiaActual.costoTotal = costoTotal;
-      vehiculo.estadiaActual.nombreTarifa = tarifaAplicada.nombre;
-      vehiculo.estadiaActual.tipoTarifa = tarifaAplicada.tipo;
-      vehiculo.estadiaActual.tarifaAplicada = tarifaAplicada;
-  
-      vehiculo.historialEstadias.push({ ...vehiculo.estadiaActual });
-  
-      // Reset estadía
-      vehiculo.estadiaActual = {
-        entrada: null,
-        salida: null,
-        costoTotal: 0,
-        nombreTarifa: null,
-        tipoTarifa: null 
-      };
-  
-      await vehiculo.save();
-  
-      res.json({
-        msg: "Salida registrada",
-        costoTotal,
-        tarifaAplicada,
-        tiempoTotalMinutos: tiempoMin,
-        cantidadVeces
-      });
-  
-    } catch (err) {
-      console.error("Error en registrarSalida:", err);
-      res.status(500).json({ msg: "Error del servidor" });
+  try {
+    const { patente } = req.params;
+
+    const vehiculo = await Vehiculo.findOne({ patente });
+
+    if (!vehiculo) {
+      return res.status(404).json({ msg: "Vehículo no encontrado" });
     }
+
+    if (!vehiculo.estadiaActual || !vehiculo.estadiaActual.entrada || vehiculo.estadiaActual.salida) {
+      return res.status(400).json({ msg: "No hay estadía activa para este vehículo" });
+    }
+
+    vehiculo.estadiaActual.salida = new Date();
+    await vehiculo.save();
+
+    res.status(200).json({ msg: "Salida registrada", vehiculo });
+  } catch (err) {
+    console.error("💥 Error en registrarSalida:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 exports.asignarAbonoAVehiculo = async (req, res) => {
