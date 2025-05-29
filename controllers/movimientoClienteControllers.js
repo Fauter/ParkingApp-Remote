@@ -1,34 +1,43 @@
 const MovimientoCliente = require('../models/MovimientoCliente');
 const Cliente = require('../models/Cliente');
 
+// Registrar un nuevo movimiento
 exports.registrarMovimientoCliente = async (req, res) => {
+  console.log('req.body:', req.body);
   try {
     const {
       nombreApellido,
       email,
       descripcion,
       monto,
-      tipo,
+      tipoVehiculo, // 🛠️ Usa el nombre correcto según el schema
       operador = 'Carlos',
       patente
     } = req.body;
 
+    // Validaciones básicas
     if (
       !nombreApellido?.trim() ||
       !email?.trim() ||
       !descripcion?.trim() ||
-      !monto ||
-      !tipo?.trim()
+      monto === undefined ||
+      !tipoVehiculo?.trim()
     ) {
-      return res.status(400).json({ message: 'Faltan datos obligatorios para registrar el movimiento.' });
+      return res.status(400).json({
+        message: 'Faltan datos obligatorios para registrar el movimiento.'
+      });
     }
 
-    let cliente = await Cliente.findOne({ nombreApellido: { $regex: `^${nombreApellido.trim()}$`, $options: 'i' } });
+    // Buscar cliente por nombre o email
+    let cliente = await Cliente.findOne({
+      nombreApellido: { $regex: `^${nombreApellido.trim()}$`, $options: 'i' }
+    });
 
     if (!cliente) {
       cliente = await Cliente.findOne({ email });
     }
 
+    // Si no existe, se crea
     if (!cliente) {
       cliente = new Cliente({
         nombreApellido: nombreApellido.trim(),
@@ -36,23 +45,24 @@ exports.registrarMovimientoCliente = async (req, res) => {
         abonos: [],
         vehiculos: [],
         balance: 0,
-        movimientos: []  // asegurate que esto exista en el modelo
+        movimientos: []
       });
       await cliente.save();
     }
 
+    // Crear movimiento
     const nuevoMovimiento = new MovimientoCliente({
       cliente: cliente._id,
       descripcion: descripcion.trim(),
       monto: Number(monto),
-      tipo: tipo.trim(),
-      operador,
+      tipoVehiculo: tipoVehiculo.trim(),
+      operador: operador.trim(),
       patente: patente?.trim() || null
     });
 
     const movimientoGuardado = await nuevoMovimiento.save();
 
-    // Ahora sí, agregamos el movimiento al cliente
+    // Asociar el movimiento al cliente si no está ya incluido
     if (!cliente.movimientos.includes(movimientoGuardado._id)) {
       cliente.movimientos.push(movimientoGuardado._id);
       await cliente.save();
@@ -65,27 +75,37 @@ exports.registrarMovimientoCliente = async (req, res) => {
 
   } catch (error) {
     console.error('Error al registrar movimiento cliente:', error);
-    return res.status(500).json({ message: 'Error al registrar movimiento cliente' });
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Obtener todos los movimientos de cliente
+// Obtener todos los movimientos
 exports.getMovimientosCliente = async (req, res) => {
   try {
-    const movimientos = await MovimientoCliente.find().populate('cliente', 'nombreApellido');
+    const movimientos = await MovimientoCliente.find()
+      .populate('cliente', 'nombreApellido email')
+      .sort({ createdAt: -1 });
+
     res.status(200).json(movimientos);
-  } catch (err) {
-    res.status(500).json({ error: 'Error al obtener los movimientos de cliente', details: err.message });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error al obtener los movimientos de cliente',
+      details: error.message
+    });
   }
 };
 
-// Borrar todos los movimientos de cliente
+// Borrar todos los movimientos
 exports.borrarTodosMovimientosCliente = async (req, res) => {
   try {
     await MovimientoCliente.deleteMany({});
     await Cliente.updateMany({}, { $set: { movimientos: [] } });
-    res.status(200).json({ message: 'Todos los movimientos de cliente eliminados correctamente' });
-  } catch (err) {
-    res.status(500).json({ error: 'Error al borrar los movimientos', details: err.message });
+
+    res.status(200).json({ message: 'Todos los movimientos fueron eliminados correctamente' });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error al borrar los movimientos de cliente',
+      details: error.message
+    });
   }
 };

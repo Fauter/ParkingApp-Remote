@@ -5,9 +5,9 @@ const MovimientoClienteSchema = new mongoose.Schema({
   fecha: { type: Date, default: Date.now },
   descripcion: { type: String, required: true },
   monto: { type: Number, required: true },
-  tipo: { type: String, enum: ['Pago', 'Cobro', 'Ajuste'], required: true },
+  tipoVehiculo: { type: String, required: true },
   operador: { type: String, required: true, default: 'Carlos' },
-  patente: { type: String } 
+  patente: { type: String }
 }, { timestamps: true });
 
 module.exports = mongoose.model('MovimientoCliente', MovimientoClienteSchema);

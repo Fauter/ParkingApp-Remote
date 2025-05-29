@@ -26,4 +26,14 @@ router.put('/:vehiculo', (req, res) => {
     res.json({ message: 'Precios actualizados correctamente' });
 });
 
+router.delete('/', (req, res) => {
+    // Vacía el objeto de precios
+    const dataVacia = {};
+
+    // Escribe el objeto vacío en el archivo
+    fs.writeFileSync(filePath, JSON.stringify(dataVacia, null, 2));
+
+    res.json({ message: 'Todos los precios fueron eliminados correctamente' });
+});
+
 module.exports = router;
