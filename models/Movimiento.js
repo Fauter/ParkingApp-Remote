@@ -7,7 +7,7 @@ const MovimientoSchema = new mongoose.Schema({
   operador: { type: String, required: true, default: 'Carlos' }, // Default operador "Carlos"
   tipoVehiculo: { type: String, required: true },
   metodoPago: { type: String, enum: ['Efectivo', 'Débito', 'Crédito', 'QR'], required: true },
-  factura: { type: String, enum: ['No', 'A', 'Final'], required: true },
+  factura: { type: String, enum: ['CC', 'A', 'Final'], required: true },
   monto: { type: Number, required: true },
   promo: { type: mongoose.Schema.Types.Mixed, default: 0 },
   tipoTarifa: { type: String }
