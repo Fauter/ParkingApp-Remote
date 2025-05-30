@@ -39,7 +39,7 @@ exports.createVehiculo = async (req, res) => {
                     operador: "Sistema",
                     tipoVehiculo,
                     metodoPago: "Efectivo",
-                    factura: "No",
+                    factura: "CC",
                     monto: precioAbono,
                     descripcion: "Pago de abono abono"
                 });
