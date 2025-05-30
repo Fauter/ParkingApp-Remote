@@ -45,7 +45,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Conectado a MongoDB Atlas"))
+  .then(() => {
+    console.log("✅ Conectado a MongoDB Atlas");
+    require('./cron/turnoChecker');
+  })
   .catch(err => console.error("❌ Error conectando a MongoDB:", err));
 
 // Rutas API

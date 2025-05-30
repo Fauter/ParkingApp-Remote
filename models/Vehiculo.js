@@ -5,6 +5,7 @@ const VehiculoSchema = new mongoose.Schema({
     patente: { type: String, required: true, unique: true },
     tipoVehiculo: { type: String, required: true },
     abonado: { type: Boolean, default: false },
+    turno: { type: Boolean, default: false }, // 👈 Nuevo campo booleano
     abono: { type: mongoose.Schema.Types.ObjectId, ref: 'Abono' },
     cashback: { type: Number, default: 0 },
     estadiaActual: {
