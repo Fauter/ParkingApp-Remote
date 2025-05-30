@@ -161,14 +161,33 @@ exports.registrarSalida = async (req, res) => {
       return res.status(404).json({ msg: "Vehículo no encontrado" });
     }
 
-    if (!vehiculo.estadiaActual || !vehiculo.estadiaActual.entrada || vehiculo.estadiaActual.salida) {
+    const estadia = vehiculo.estadiaActual;
+
+    if (!estadia || !estadia.entrada || estadia.salida) {
       return res.status(400).json({ msg: "No hay estadía activa para este vehículo" });
     }
 
-    vehiculo.estadiaActual.salida = new Date();
+    // Registrar salida actual
+    estadia.salida = new Date();
+
+    // Ejemplo: acá podrías calcular costoTotal, nombreTarifa y tipoTarifa si lo necesitás
+    // (aunque ya dijiste que eso lo hace el front, igual podés dejar el campo disponible para futuros usos)
+
+    // Mover estadiaActual al historial
+    vehiculo.historialEstadias.push({ ...estadia });
+
+    // Limpiar estadiaActual para permitir futuras entradas
+    vehiculo.estadiaActual = {
+      entrada: null,
+      salida: null,
+      costoTotal: null,
+      nombreTarifa: null,
+      tipoTarifa: null
+    };
+
     await vehiculo.save();
 
-    res.status(200).json({ msg: "Salida registrada", vehiculo });
+    res.status(200).json({ msg: "Salida registrada y estadía archivada", vehiculo });
   } catch (err) {
     console.error("💥 Error en registrarSalida:", err);
     res.status(500).json({ msg: "Error del servidor" });
