@@ -6,7 +6,7 @@ const TurnoSchema = new mongoose.Schema({
   duracionHoras: { type: Number, required: true },
   precio: { type: Number, required: true },
   metodoPago: { type: String, required: true },
-  factura: { type: String, enum: ['CC', 'Final', 'No'], default: 'CC' },
+  factura: { type: String, enum: ['CC', 'Final', 'A'], default: 'CC' },
   inicio: { type: Date, default: Date.now },
   fin: { type: Date },
   usado: { type: Boolean, default: false },
