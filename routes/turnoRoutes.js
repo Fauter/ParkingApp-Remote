@@ -6,7 +6,8 @@ const {
     obtenerTurnosPorPatente,
     eliminarTodosLosTurnos, 
     desactivarTurnoPorPatente,
-    desactivarTurno, } = require('../controllers/turnoControllers');
+    desactivarTurno, }
+= require('../controllers/turnoControllers');
 
 router.post('/', crearTurno);
 router.get('/', obtenerTurnos);

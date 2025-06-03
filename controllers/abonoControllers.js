@@ -28,6 +28,9 @@ exports.registrarAbono = async (req, res) => {
       precio,
     } = req.body;
 
+    console.log('req.body completo:', req.body);
+    console.log('tipoVehiculo recibido:', tipoVehiculo);
+    
     let tarifaSeleccionada = req.body.tarifaSeleccionada;
 
     // Si viene como string y empieza con '{' o '[', entonces parsear, sino dejarlo como string

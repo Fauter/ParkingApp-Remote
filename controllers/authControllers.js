@@ -1,6 +1,29 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
+
+exports.getUserById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ msg: "ID inválido" });
+        }
+
+        const user = await User.findById(id).select('-password');
+        if (!user) {
+            return res.status(404).json({ msg: "Usuario no encontrado" });
+        }
+
+        res.json(user);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: "Error al obtener el usuario" });
+    }
+};
+
 
 exports.register = async (req, res) => {
     try {
@@ -59,6 +82,32 @@ exports.login = async (req, res) => {
     }
 };
 
+exports.updateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        // Si la contraseña es una string vacía, eliminarla de los updates
+        if (updates.password === '') {
+            delete updates.password;
+        } else if (updates.password) {
+            const salt = await bcrypt.genSalt(10);
+            updates.password = await bcrypt.hash(updates.password, salt);
+        }
+
+        const user = await User.findByIdAndUpdate(id, updates, { new: true, runValidators: true }).select('-password');
+
+        if (!user) {
+            return res.status(404).json({ msg: "Usuario no encontrado" });
+        }
+
+        res.json({ msg: "Usuario actualizado", user });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: "Error al actualizar el usuario" });
+    }
+};
+
 exports.getAllUsers = async (req, res) => {
     try {
       const users = await User.find().select("-password"); // Excluir contraseña por seguridad
@@ -68,29 +117,31 @@ exports.getAllUsers = async (req, res) => {
       res.status(500).json({ msg: "Error al obtener los usuarios" });
     }
 };
-exports.getProfile = async (req, res) => {
+
+exports.getProfile = (req, res) => {
+    // Aquí ya tenés el usuario
+    res.json({
+        username: req.user.username,
+        nombre: req.user.nombre,
+        apellido: req.user.apellido,
+        role: req.user.role
+    });
+};
+
+exports.deleteUserById = async (req, res) => {
     try {
-        const authHeader = req.header('Authorization');
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-            return res.status(401).json({ msg: "Acceso denegado, no hay token" });
-        }
+        const { id } = req.params;
 
-        const token = authHeader.split(" ")[1];
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "default_secret");
-        const user = await User.findById(decoded.id).select("username");
-
+        const user = await User.findById(id);
         if (!user) {
             return res.status(404).json({ msg: "Usuario no encontrado" });
         }
 
-        res.json(user);
+        await User.findByIdAndDelete(id);
+        res.json({ msg: "Usuario eliminado correctamente" });
     } catch (error) {
-        if (error.name === 'TokenExpiredError') {
-            return res.status(401).json({ msg: "Token expirado" });
-        }
         console.error(error);
-        res.status(500).json({ msg: "Error en el servidor" });
+        res.status(500).json({ msg: "Error al eliminar el usuario" });
     }
 };
 

@@ -17,6 +17,7 @@ const parametrosRoutes = require('./routes/parametros.js');
 const calcularTarifaRoutes = require('./routes/calcularTarifaRoutes.js');
 const turnoRoutes = require('./routes/turnoRoutes.js');
 const clienteRoutes = require('./routes/clienteRoutes.js');
+const promoRoutes = require('./routes/promoRoutes.js')
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use('/api/parametros', parametrosRoutes);
 app.use('/api/calcular-tarifa', calcularTarifaRoutes);
 app.use('/api/turnos', turnoRoutes);
 app.use('/api/clientes', clienteRoutes);
+app.use('/api/promos', promoRoutes);
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -72,12 +74,13 @@ if (process.env.NODE_ENV === 'production') {
   console.log('Client Path:', clientPath);  // <--- Acá el log
   app.use(express.static(clientPath));
 
-  app.get('*', (req, res, next) => {
-    if (req.originalUrl.startsWith('/api/')) return next();
+  app.get('*', (req, res) => {
+    if (req.originalUrl.startsWith('/api/')) {
+      // Si llega una ruta API no encontrada, enviar 404 (o next)
+      return res.status(404).json({ error: 'API route not found' });
+    }
     
-    // Si está pidiendo un archivo con extensión (js, css, png, etc.), no devolver index.html
-    if (path.extname(req.originalUrl)) return res.sendStatus(404);
-
+    // Cualquier otra ruta, enviamos index.html para que React Router maneje la ruta
     res.sendFile(path.join(clientPath, 'index.html'));
   });
 }

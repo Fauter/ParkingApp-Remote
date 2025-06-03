@@ -1,6 +1,9 @@
+const express = require('express');
+const router = express.Router();
 const axios = require('axios');
 const Turno = require('../models/Turno');
 const Movimiento = require('../models/Movimiento');
+const authMiddleware = require('../middlewares/authMiddleware2');
 
 const crearTurno = async (req, res) => {
   try {
@@ -17,10 +20,6 @@ const crearTurno = async (req, res) => {
     }
 
     // Obtener vehículo desde API externa
-    if (!patente || !metodoPago || !fin || !duracionHoras || !nombreTarifa) {
-      return res.status(400).json({ error: 'Faltan campos requeridos' });
-    }
-
     const responseVehiculo = await axios.get(`http://localhost:5000/api/vehiculos/${patente}`);
     const vehiculo = responseVehiculo.data;
     const tipoVehiculo = vehiculo.tipoVehiculo;
@@ -54,19 +53,7 @@ const crearTurno = async (req, res) => {
 
     await nuevoTurno.save();
 
-    // Crear y guardar el movimiento
-    const movimiento = new Movimiento({
-      patente,
-      descripcion: `Pago por Turno (${nombreTarifa})`,
-      operador: 'Carlos', // Podrías reemplazar por usuario autenticado si tienes
-      tipoVehiculo,
-      metodoPago,
-      factura,
-      monto: precio,
-      tipoTarifa: 'turno'
-    });
-
-    await movimiento.save();
+    // NO CREAR MOVIMIENTO
 
     res.status(201).json(nuevoTurno);
 

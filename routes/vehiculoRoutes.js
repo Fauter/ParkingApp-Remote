@@ -2,6 +2,7 @@ const express = require('express');
 const Vehiculo = require('../models/Vehiculo');
 const { 
     createVehiculo, 
+    createVehiculoSinEntrada,
     getVehiculos, 
     getVehiculoByPatente, 
     getVehiculoById,
@@ -43,6 +44,7 @@ router.put('/:patente/costoTotal', async (req, res) => {
 });
 
 router.post('/', createVehiculo);
+router.post('/sin-entrada', createVehiculoSinEntrada);
 router.get('/', getVehiculos);
 router.get('/tipos', getTiposVehiculo);
 router.get('/:patente', getVehiculoByPatente);
@@ -51,5 +53,7 @@ router.put('/:patente/registrarEntrada', registrarEntrada);
 router.put('/:patente/registrarSalida', registrarSalida); 
 router.put("/asignar-abono/:patente", asignarAbonoAVehiculo);
 router.delete("/", eliminarTodosLosVehiculos); 
+
+createVehiculoSinEntrada
 
 module.exports = router;

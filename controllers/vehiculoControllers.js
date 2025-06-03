@@ -82,6 +82,56 @@ exports.createVehiculo = async (req, res) => {
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
+exports.createVehiculoSinEntrada = async (req, res) => {
+    try {
+        const { patente, tipoVehiculo, abonado, turno } = req.body;
+
+        if (!patente || !tipoVehiculo) {
+            return res.status(400).json({ msg: "Faltan datos" });
+        }
+
+        let vehiculo = await Vehiculo.findOne({ patente });
+
+        if (!vehiculo) {
+            vehiculo = new Vehiculo({
+                patente,
+                tipoVehiculo,
+                abonado: !!abonado,
+                turno: !!turno
+            });
+
+            if (abonado) {
+                const precios = obtenerPrecios();
+                const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
+
+                vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+                const nuevoMovimiento = new Movimiento({
+                    patente,
+                    operador: "Sistema",
+                    tipoVehiculo,
+                    metodoPago: "Efectivo",
+                    factura: "CC",
+                    monto: precioAbono,
+                    descripcion: "Pago de abono abono"
+                });
+
+                await nuevoMovimiento.save();
+            }
+
+            // NO se registra entrada acá
+            await vehiculo.save();
+
+            return res.status(201).json({ msg: "Vehículo creado sin entrada registrada", vehiculo });
+        }
+
+        return res.status(200).json({ msg: "Vehículo ya existe", vehiculo });
+
+    } catch (err) {
+        console.error("💥 Error en createVehiculoSinEntrada:", err);
+        res.status(500).json({ msg: "Error del servidor" });
+    }
+};
 
 // Obtener todos los vehículos
 exports.getVehiculos = async (req, res) => {
