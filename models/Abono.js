@@ -36,6 +36,10 @@ const abonoSchema = new mongoose.Schema({
   fotoDNI: String,
   fotoCedulaVerde: String,
   fotoCedulaAzul: String,
+  activo: {
+    type: Boolean,
+    default: true
+  }
 });
 
 module.exports = mongoose.model('Abono', abonoSchema);

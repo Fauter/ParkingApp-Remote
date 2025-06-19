@@ -9,11 +9,12 @@ const VehiculoSchema = new mongoose.Schema({
     abono: { type: mongoose.Schema.Types.ObjectId, ref: 'Abono' },
     cashback: { type: Number, default: 0 },
     estadiaActual: {
-          entrada: { type: Date, required: false, default: null },
+        entrada: { type: Date, required: false, default: null },
         salida: { type: Date },
         costoTotal: { type: Number, default: 0 },
         nombreTarifa: { type: String, default: null },
-        tipoTarifa: { type: String }
+        tipoTarifa: { type: String },
+        operadorNombre: { type: String, default: null }  // <-- Acá lo agregás
     },
     historialEstadias: [{
         entrada: { type: Date, required: true },

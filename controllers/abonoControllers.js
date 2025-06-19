@@ -4,8 +4,8 @@ const Cliente = require('../models/Cliente');
 
 exports.registrarAbono = async (req, res) => {
   try {
-    // En backend con multer para archivos, los datos normales vienen en req.body
-    // Los archivos vienen en req.files (objeto con arrays de archivos)
+    console.log('📥 registrarAbono - req.body:', req.body);
+    console.log('📥 registrarAbono - req.files:', req.files);
 
     const { 
       nombreApellido,
@@ -25,33 +25,8 @@ exports.registrarAbono = async (req, res) => {
       metodoPago,
       factura,
       tipoVehiculo,
-      precio,
+      dniCuitCuil    // <-- lo desestructuramos aquí
     } = req.body;
-
-    console.log('req.body completo:', req.body);
-    console.log('tipoVehiculo recibido:', tipoVehiculo);
-    
-    let tarifaSeleccionada = req.body.tarifaSeleccionada;
-
-    // Si viene como string y empieza con '{' o '[', entonces parsear, sino dejarlo como string
-    if (typeof tarifaSeleccionada === 'string' && (tarifaSeleccionada.startsWith('{') || tarifaSeleccionada.startsWith('['))) {
-      try {
-        tarifaSeleccionada = JSON.parse(tarifaSeleccionada);
-      } catch (e) {
-        console.error('Error al parsear tarifaSeleccionada:', e);
-        tarifaSeleccionada = null;
-      }
-    }
-
-    // Si tarifaSeleccionada es string (id), deberías buscar el objeto tarifa en la base antes de usarlo
-    if (typeof tarifaSeleccionada === 'string') {
-      // Suponiendo que tienes un modelo Tarifa para buscar
-      const Tarifa = require('../models/Tarifa');
-      tarifaSeleccionada = await Tarifa.findById(tarifaSeleccionada);
-      if (!tarifaSeleccionada) {
-        return res.status(400).json({ message: 'Tarifa seleccionada no encontrada' });
-      }
-    }
 
     // Validaciones mínimas
     if (
@@ -61,23 +36,45 @@ exports.registrarAbono = async (req, res) => {
       !marca?.trim() ||
       !modelo?.trim() ||
       !tipoVehiculo?.trim() ||
-      !tarifaSeleccionada ||  // Aquí ya es objeto
-      precio == null          // aceptamos precio = 0
+      !dniCuitCuil?.trim()    // <-- validamos también este campo
     ) {
+      console.warn('⚠️ registrarAbono - faltan campos obligatorios');
       return res.status(400).json({ message: 'Faltan datos obligatorios para crear el abono.' });
     }
 
-    // Extraer filenames si vienen archivos
+    // Fecha actual y cálculo del último día del mes
+    const hoy = new Date();
+    const anioActual = hoy.getFullYear();
+    const mesActual = hoy.getMonth();
+    const ultimoDiaMes = new Date(anioActual, mesActual + 1, 0);
+    ultimoDiaMes.setHours(23, 59, 59, 999);
+
+    const totalDiasMes = ultimoDiaMes.getDate();
+    const diaActual = hoy.getDate();
+
+    // Precio proporcional
+    const preciosPorTipoVehiculo = { auto: 100000, camioneta: 160000, moto: 50000 };
+    const precioBaseMensual = preciosPorTipoVehiculo[tipoVehiculo.toLowerCase()] || 100000;
+    const precioFinal = diaActual === 1
+      ? precioBaseMensual
+      : Math.round((precioBaseMensual / totalDiasMes) * (totalDiasMes - diaActual + 1));
+    console.log('ℹ️ registrarAbono - precioFinal:', precioFinal);
+
+    // Archivos adjuntos
     const fotoSeguro = req.files?.fotoSeguro?.[0]?.filename || '';
     const fotoDNI = req.files?.fotoDNI?.[0]?.filename || '';
     const fotoCedulaVerde = req.files?.fotoCedulaVerde?.[0]?.filename || '';
     const fotoCedulaAzul = req.files?.fotoCedulaAzul?.[0]?.filename || '';
 
-    // Buscar cliente por nombreApellido (insensible a mayúsculas)
-    let cliente = await Cliente.findOne({ nombreApellido: { $regex: `^${nombreApellido.trim()}$`, $options: 'i' } });
-    if (!cliente) {
-      cliente = await Cliente.findOne({ email });
-    }
+    // Buscar o crear cliente
+    let cliente = await Cliente.findOne({
+      $or: [
+        { nombreApellido: { $regex: `^${nombreApellido.trim()}$`, $options: 'i' } },
+        { email }
+      ]
+    });
+    console.log('🔍 registrarAbono - cliente encontrado:', cliente);
+
     if (!cliente) {
       cliente = new Cliente({
         nombreApellido: nombreApellido.trim(),
@@ -88,18 +85,13 @@ exports.registrarAbono = async (req, res) => {
         domicilioTrabajo,
         telefonoTrabajo,
         email,
+        dniCuitCuil,           // <-- lo guardamos en el cliente
         abonos: [],
         vehiculos: [],
         balance: 0
       });
       await cliente.save();
-    }
-
-    // Calcular fecha expiración sumando días
-    const fechaExpiracion = new Date();
-    const diasDuracion = parseInt(tarifaSeleccionada.dias, 10);
-    if (!isNaN(diasDuracion)) {
-      fechaExpiracion.setDate(fechaExpiracion.getDate() + diasDuracion);
+      console.log('✅ registrarAbono - cliente creado:', cliente);
     }
 
     // Crear nuevo abono
@@ -112,45 +104,44 @@ exports.registrarAbono = async (req, res) => {
       domicilioTrabajo,
       telefonoTrabajo,
       email,
+      dniCuitCuil,            // <-- y también en el abono si el schema lo requiere
       patente,
       marca,
       modelo,
       color,
       anio: Number(anio),
       companiaSeguro,
-      precio: Number(precio),
+      precio: precioFinal,
       metodoPago,
       factura,
       tipoVehiculo,
-      tipoAbono: {
-        nombre: tarifaSeleccionada.nombre,
-        dias: diasDuracion
-      },
-      fechaExpiracion,
+      tipoAbono: { nombre: 'Mensual', dias: totalDiasMes },
+      fechaExpiracion: ultimoDiaMes,
       fotoSeguro,
       fotoDNI,
       fotoCedulaVerde,
       fotoCedulaAzul
     });
-
     const abonoGuardado = await nuevoAbono.save();
+    console.log('✅ registrarAbono - abono guardado:', abonoGuardado);
 
-    // Asociar abono al cliente (guardar solo ID)
+    // Asociar abono al cliente
     if (!cliente.abonos.includes(abonoGuardado._id)) {
       cliente.abonos.push(abonoGuardado._id);
     }
 
-    // Buscar vehículo por patente
+    // Buscar o crear vehículo
     let vehiculo = await Vehiculo.findOne({ patente });
+    console.log('🔍 registrarAbono - vehiculo encontrado:', vehiculo);
 
     if (vehiculo) {
       vehiculo.abono = abonoGuardado._id;
       vehiculo.abonado = true;
       await vehiculo.save();
-
       if (!cliente.vehiculos.includes(vehiculo._id)) {
         cliente.vehiculos.push(vehiculo._id);
       }
+      console.log('✅ registrarAbono - vehiculo actualizado:', vehiculo);
     } else {
       vehiculo = new Vehiculo({
         patente,
@@ -163,17 +154,23 @@ exports.registrarAbono = async (req, res) => {
       });
       await vehiculo.save();
       cliente.vehiculos.push(vehiculo._id);
+      console.log('✅ registrarAbono - vehiculo creado:', vehiculo);
     }
 
+    cliente.abonado = true;
+    if (!cliente.finAbono || ultimoDiaMes > cliente.finAbono) {
+      cliente.finAbono = ultimoDiaMes;
+    }
     await cliente.save();
+    console.log('✅ registrarAbono - cliente actualizado:', cliente);
 
     return res.status(201).json({
-      message: 'Abono registrado exitosamente',
+      message: 'Abono mensual registrado exitosamente',
       abono: abonoGuardado
     });
 
   } catch (error) {
-    console.error('Error al registrar abono:', error);
+    console.error('🔥 Error al registrar abono:', error);
     return res.status(500).json({ message: 'Error al registrar abono' });
   }
 };

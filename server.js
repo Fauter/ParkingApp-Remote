@@ -18,6 +18,9 @@ const calcularTarifaRoutes = require('./routes/calcularTarifaRoutes.js');
 const turnoRoutes = require('./routes/turnoRoutes.js');
 const clienteRoutes = require('./routes/clienteRoutes.js');
 const promoRoutes = require('./routes/promoRoutes.js')
+const cierreDeCajaRoutes = require('./routes/cierreDeCajaRoutes.js')
+const incidenteRoutes = require('./routes/incidenteRoutes.js')
+const alertaRoutes = require('./routes/alertaRoutes.js')
 
 const app = express();
 
@@ -66,6 +69,9 @@ app.use('/api/calcular-tarifa', calcularTarifaRoutes);
 app.use('/api/turnos', turnoRoutes);
 app.use('/api/clientes', clienteRoutes);
 app.use('/api/promos', promoRoutes);
+app.use('/api/cierresDeCaja', cierreDeCajaRoutes);
+app.use('/api/incidentes', incidenteRoutes);
+app.use('/api/alertas', alertaRoutes);
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);

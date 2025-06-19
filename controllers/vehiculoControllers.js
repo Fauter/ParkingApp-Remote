@@ -6,6 +6,8 @@ const Movimiento = require('../models/Movimiento');
 const Turno = require('../models/Turno');
 const Tarifa = require('../models/Tarifa');
 const Abono = require('../models/Abono');
+const Cliente = require('../models/Cliente');
+
 
 function obtenerPrecios() {
     const filePath = path.join(__dirname, '../data/precios.json');
@@ -26,61 +28,77 @@ async function actualizarEstadoTurnoVehiculo(patente) {
 
 // Crear Vehículo
 exports.createVehiculo = async (req, res) => {
-    try {
-        const { patente, tipoVehiculo, abonado, turno } = req.body;
+  console.log('BODY createVehiculo:', req.body);
+  try {
+    const { patente, tipoVehiculo, abonado = false, turno = false, operador, metodoPago, monto } = req.body;
+    const usuarioLogueado = req.user;  // middleware de auth inyecta aquí al usuario
 
-        if (!patente || !tipoVehiculo) {
-            return res.status(400).json({ msg: "Faltan datos" });
-        }
-
-        let vehiculo = await Vehiculo.findOne({ patente });
-
-        if (!vehiculo) {
-            // Crear vehículo nuevo
-            vehiculo = new Vehiculo({
-                patente,
-                tipoVehiculo,
-                abonado: !!abonado,
-                turno: !!turno
-            });
-
-            if (abonado) {
-                const precios = obtenerPrecios();
-                const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
-
-                vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-                const nuevoMovimiento = new Movimiento({
-                    patente,
-                    operador: "Sistema",
-                    tipoVehiculo,
-                    metodoPago: "Efectivo",
-                    factura: "CC",
-                    monto: precioAbono,
-                    descripcion: "Pago de abono abono"
-                });
-
-                await nuevoMovimiento.save();
-            }
-
-            vehiculo.estadiaActual = { entrada: new Date() };
-            await vehiculo.save();
-
-            return res.status(201).json({ msg: "Vehículo creado y entrada registrada", vehiculo });
-        }
-
-        if (vehiculo.estadiaActual.entrada) {
-            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso Create" });
-        }
-
-        vehiculo.estadiaActual = { entrada: new Date() };
-        await vehiculo.save();
-
-        res.status(200).json({ msg: "Entrada registrada para vehículo existente", vehiculo });
-    } catch (err) {
-        console.error("💥 Error en createVehiculo:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+    if (!patente || !tipoVehiculo) {
+      return res.status(400).json({ msg: "Faltan datos" });
     }
+
+    // Determino el nombre final del operador
+    const operadorNombre = operador || usuarioLogueado?.nombre || "Desconocido";
+
+    let vehiculo = await Vehiculo.findOne({ patente });
+
+    if (!vehiculo) {
+      // Creo vehículo nuevo
+      vehiculo = new Vehiculo({
+        patente,
+        tipoVehiculo,
+        abonado: !!abonado,
+        turno: !!turno
+      });
+
+      if (abonado) {
+        const precios = obtenerPrecios();
+        const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
+        vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        // Registro el movimiento de abono
+        const nuevoMovimiento = new Movimiento({
+          patente,
+          operador: "Sistema",
+          tipoVehiculo,
+          metodoPago: "Efectivo",
+          factura: "CC",
+          monto: precioAbono,
+          descripcion: "Pago de abono"
+        });
+        await nuevoMovimiento.save();
+      }
+
+      // Equivalente a registrarEntrada: guardo estadía actual con operadorNombre, metodoPago y monto
+      vehiculo.estadiaActual = {
+        entrada: new Date(),
+        operadorNombre,
+        metodoPago: metodoPago || null,
+        monto: monto || null
+      };
+
+      await vehiculo.save();
+      return res.status(201).json({ msg: "Vehículo creado y entrada registrada", vehiculo });
+    }
+
+    // Si ya existe pero no tiene estadía en curso, registro la nueva entrada
+    if (vehiculo.estadiaActual?.entrada) {
+      return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
+    }
+
+    vehiculo.estadiaActual = {
+      entrada: new Date(),
+      operadorNombre,
+      metodoPago: metodoPago || null,
+      monto: monto || null
+    };
+
+    await vehiculo.save();
+    return res.status(200).json({ msg: "Entrada registrada para vehículo existente", vehiculo });
+  } catch (err) {
+    console.error("💥 Error en createVehiculo:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 exports.createVehiculoSinEntrada = async (req, res) => {
     try {
@@ -201,26 +219,34 @@ exports.getTiposVehiculo = (req, res) => {
 
 // Registrar entrada
 exports.registrarEntrada = async (req, res) => {
-    try {
-        const { patente } = req.params;
-        let vehiculo = await Vehiculo.findOne({ patente });
+  try {
+    const { patente } = req.params;
+    const { operador, metodoPago, monto } = req.body;  // leemos lo que manda el front
 
-        if (!vehiculo) {
-            return res.status(404).json({ msg: "Vehículo no encontrado" });
-        }
+    let vehiculo = await Vehiculo.findOne({ patente });
 
-        if (vehiculo.estadiaActual?.entrada) {
-            return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
-        }
-
-        vehiculo.estadiaActual = { entrada: new Date() };
-        await vehiculo.save();
-
-        res.status(200).json({ msg: "Entrada registrada para vehículo", vehiculo });
-    } catch (err) {
-        console.error("Error en registrarEntrada:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+    if (!vehiculo) {
+      return res.status(404).json({ msg: "Vehículo no encontrado" });
     }
+
+    if (vehiculo.estadiaActual?.entrada) {
+      return res.status(400).json({ msg: "Este vehículo ya tiene una estadía en curso" });
+    }
+
+    vehiculo.estadiaActual = {
+      entrada: new Date(),
+      operadorNombre: operador || "Desconocido",
+      metodoPago: metodoPago || null,
+      monto: monto || null,
+    };
+
+    await vehiculo.save();
+
+    res.status(200).json({ msg: "Entrada registrada para vehículo", vehiculo });
+  } catch (err) {
+    console.error("Error en registrarEntrada:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Registrar salida

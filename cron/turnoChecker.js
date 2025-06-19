@@ -1,9 +1,9 @@
-// cron/turnoChecker.js
 const cron = require('node-cron');
 const Vehiculo = require('../models/Vehiculo');
 const Turno = require('../models/Turno');
+const { expirarTurnosAutomáticamente } = require('../controllers/turnoControllers');
 
-// Función para verificar si un vehículo tiene turnos activos válidos
+// Verifica si un vehículo tiene turnos activos válidos
 async function verificarYActualizarTurnosVehiculos() {
   const ahora = new Date();
 
@@ -28,8 +28,9 @@ async function verificarYActualizarTurnosVehiculos() {
   }
 }
 
-// Ejecutar cada hora (podés ajustar esto como quieras)
-cron.schedule('0 * * * *', () => {
+// Ejecutar cada hora
+cron.schedule('0 * * * *', async () => {
   console.log('⏰ Ejecutando verificación de turnos de vehículos...');
-  verificarYActualizarTurnosVehiculos();
+  await expirarTurnosAutomáticamente(); // 👈 ESTO FALTABA
+  await verificarYActualizarTurnosVehiculos();
 });
