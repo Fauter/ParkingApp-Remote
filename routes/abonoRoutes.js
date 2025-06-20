@@ -1,6 +1,6 @@
 const express = require('express');
-const multer  = require('multer');
-const path    = require('path');            
+const multer = require('multer');
+const path = require('path');            
 const {
   getAbonos,
   getAbonoPorId,
@@ -10,14 +10,13 @@ const {
 
 const router = express.Router();
 
-// Configuración Multer
+// Configuración Multer - ahora guarda en uploads/fotos
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, 'uploads/fotos/');
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    // Usa path.extname para mantener la extensión original
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
@@ -25,10 +24,10 @@ const upload = multer({ storage });
 
 // Campos de archivos que espera el endpoint
 const uploadFields = upload.fields([
-  { name: 'fotoSeguro',      maxCount: 1 },
-  { name: 'fotoDNI',          maxCount: 1 },
-  { name: 'fotoCedulaVerde',  maxCount: 1 },
-  { name: 'fotoCedulaAzul',   maxCount: 1 },
+  { name: 'fotoSeguro', maxCount: 1 },
+  { name: 'fotoDNI', maxCount: 1 },
+  { name: 'fotoCedulaVerde', maxCount: 1 },
+  { name: 'fotoCedulaAzul', maxCount: 1 },
 ]);
 
 // Rutas

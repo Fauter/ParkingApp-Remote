@@ -15,6 +15,7 @@ const clienteSchema = new mongoose.Schema({
   movimientos: [{ type: mongoose.Schema.Types.ObjectId, ref: 'MovimientoCliente' }],
   balance: { type: Number, default: 0 },
   abonado: { type: Boolean, default: false },
+  precioAbono: { type: String, default: '' },  // <--- NUEVO CAMPO: string, nombre del tipo de vehículo
   finAbono: {
     type: Date,
     validate: function(value) {

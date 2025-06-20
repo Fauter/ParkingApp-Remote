@@ -3,14 +3,11 @@ const Cliente = require('../models/Cliente');
 // Controlador con validaciones
 exports.crearClienteSiNoExiste = async (req, res) => {
   const datos = req.body;
-  const { nombreApellido, dniCuitCuil } = datos;
+  const { nombreApellido, dniCuitCuil, precioAbono } = datos;
 
-  // Validación nombreApellido
   if (!nombreApellido || typeof nombreApellido !== 'string' || nombreApellido.trim() === '') {
     return res.status(400).json({ message: 'El campo "nombreApellido" es obligatorio.' });
   }
-
-  // Validación dniCuitCuil
   if (!dniCuitCuil || typeof dniCuitCuil !== 'string' || dniCuitCuil.trim() === '') {
     return res.status(400).json({ message: 'El campo "dniCuitCuil" es obligatorio.' });
   }
@@ -29,6 +26,7 @@ exports.crearClienteSiNoExiste = async (req, res) => {
         domicilioTrabajo: datos.domicilioTrabajo || '',
         telefonoTrabajo: datos.telefonoTrabajo || '',
         email: datos.email || '',
+        precioAbono: precioAbono || '',  // Guarda precioAbono si llega en el body
       });
 
       await cliente.save();
@@ -63,6 +61,23 @@ exports.obtenerClientePorNombre = async (req, res) => {
     res.status(500).json({ message: 'Error al buscar cliente', error: err.message });
   }
 };
+exports.obtenerClientePorId = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const cliente = await Cliente.findById(id)
+      .populate('vehiculos')
+      .populate('movimientos')
+      .populate('abonos');
+
+    if (!cliente) {
+      return res.status(404).json({ message: 'Cliente no encontrado' });
+    }
+
+    res.json(cliente);
+  } catch (err) {
+    res.status(500).json({ message: 'Error al buscar cliente por ID', error: err.message });
+  }
+};
 
 exports.marcarClienteComoAbonado = async (req, res) => {
   const { nombreApellido } = req.body;
@@ -85,6 +100,36 @@ exports.marcarClienteComoAbonado = async (req, res) => {
     res.status(200).json({ message: 'Cliente marcado como abonado.', cliente });
   } catch (err) {
     res.status(500).json({ message: 'Error al actualizar cliente', error: err.message });
+  }
+};
+
+exports.actualizarPrecioAbono = async (req, res) => {
+  const { id } = req.params;
+  const { tipoVehiculo, precioMensual } = req.body;
+
+  try {
+    const cliente = await Cliente.findById(id);
+    if (!cliente) {
+      return res.status(404).json({ message: 'Cliente no encontrado' });
+    }
+
+    // Siempre actualizamos el precioAbono si se proporciona un tipoVehiculo
+    if (tipoVehiculo) {
+      cliente.precioAbono = tipoVehiculo;
+      await cliente.save();
+      return res.json({ 
+        message: 'Precio de abono actualizado correctamente',
+        cliente 
+      });
+    }
+
+    res.json(cliente);
+  } catch (err) {
+    console.error('Error al actualizar precio de abono:', err);
+    res.status(500).json({ 
+      message: 'Error al actualizar precio de abono', 
+      error: err.message 
+    });
   }
 };
 

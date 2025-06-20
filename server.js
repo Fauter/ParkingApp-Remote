@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const fs = require('fs');
 
 const authRoutes = require('./routes/authRoutes.js');
 const vehiculoRoutes = require('./routes/vehiculoRoutes'); 
@@ -21,6 +22,7 @@ const promoRoutes = require('./routes/promoRoutes.js')
 const cierreDeCajaRoutes = require('./routes/cierreDeCajaRoutes.js')
 const incidenteRoutes = require('./routes/incidenteRoutes.js')
 const alertaRoutes = require('./routes/alertaRoutes.js')
+const auditoriaRoutes = require('./routes/auditoriaRoutes.js')
 
 const app = express();
 
@@ -45,8 +47,27 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Carpeta estática uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Crear directorios si no existen
+const uploadsDir = path.join(__dirname, 'uploads');
+const fotosDir = path.join(uploadsDir, 'fotos');
+const auditoriasDir = path.join(uploadsDir, 'auditorias');
+
+[uploadsDir, fotosDir, auditoriasDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+// Configurar rutas estáticas
+app.use('/uploads/fotos', express.static(path.join(__dirname, 'uploads', 'fotos'), {
+  setHeaders: (res, filePath) => {
+    // Permitir CORS para las imágenes
+    res.set('Access-Control-Allow-Origin', '*');
+    // Cache control para desarrollo
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  }
+}));
+app.use('/uploads/auditorias', express.static(auditoriasDir));
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
@@ -72,23 +93,33 @@ app.use('/api/promos', promoRoutes);
 app.use('/api/cierresDeCaja', cierreDeCajaRoutes);
 app.use('/api/incidentes', incidenteRoutes);
 app.use('/api/alertas', alertaRoutes);
+app.use('/api/auditorias', auditoriaRoutes);
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);
 if (process.env.NODE_ENV === 'production') {
   const clientPath = path.join(__dirname, '../../admin.garageia.com/public_html');
-  console.log('Client Path:', clientPath);  // <--- Acá el log
-  app.use(express.static(clientPath));
-
-  app.get('*', (req, res) => {
-    if (req.originalUrl.startsWith('/api/')) {
-      // Si llega una ruta API no encontrada, enviar 404 (o next)
-      return res.status(404).json({ error: 'API route not found' });
-    }
+  
+  // Verificar si el directorio existe
+  if (!fs.existsSync(clientPath)) {
     
-    // Cualquier otra ruta, enviamos index.html para que React Router maneje la ruta
-    res.sendFile(path.join(clientPath, 'index.html'));
-  });
+  } else {
+    app.use(express.static(clientPath));
+
+    app.get('*', (req, res) => {
+      if (req.originalUrl.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API route not found' });
+      }
+      
+      const indexPath = path.join(clientPath, 'index.html');
+      if (!fs.existsSync(indexPath)) {
+        console.error('❌ No se encontró index.html en:', indexPath);
+        return res.status(404).send('Archivo no encontrado');
+      }
+      
+      res.sendFile(indexPath);
+    });
+  }
 }
 
 const PORT = process.env.PORT || 5000;

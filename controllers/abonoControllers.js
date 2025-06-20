@@ -61,10 +61,10 @@ exports.registrarAbono = async (req, res) => {
     console.log('ℹ️ registrarAbono - precioFinal:', precioFinal);
 
     // Archivos adjuntos
-    const fotoSeguro = req.files?.fotoSeguro?.[0]?.filename || '';
-    const fotoDNI = req.files?.fotoDNI?.[0]?.filename || '';
-    const fotoCedulaVerde = req.files?.fotoCedulaVerde?.[0]?.filename || '';
-    const fotoCedulaAzul = req.files?.fotoCedulaAzul?.[0]?.filename || '';
+    const fotoSeguro = req.files?.fotoSeguro?.[0]?.filename ? `/fotos/${req.files.fotoSeguro[0].filename}` : '';
+    const fotoDNI = req.files?.fotoDNI?.[0]?.filename ? `/fotos/${req.files.fotoDNI[0].filename}` : '';
+    const fotoCedulaVerde = req.files?.fotoCedulaVerde?.[0]?.filename ? `/fotos/${req.files.fotoCedulaVerde[0].filename}` : '';
+    const fotoCedulaAzul = req.files?.fotoCedulaAzul?.[0]?.filename ? `/fotos/${req.files.fotoCedulaAzul[0].filename}` : '';
 
     // Buscar o crear cliente
     let cliente = await Cliente.findOne({
