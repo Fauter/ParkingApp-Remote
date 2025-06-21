@@ -3,11 +3,13 @@ const router = express.Router();
 const {
     obtenerClientes,
     obtenerClientePorNombre,
-    obtenerClientePorId, // 👈 Agregá esto
+    obtenerClientePorId,
     crearClienteSiNoExiste,
     marcarClienteComoAbonado,
     eliminarTodosLosClientes,
-    actualizarPrecioAbono 
+    actualizarPrecioAbono,
+    desabonarCliente,
+    renovarAbono
 } = require('../controllers/clienteControllers');
 
 router.get('/', obtenerClientes);
@@ -16,6 +18,8 @@ router.get('/id/:id', obtenerClientePorId);
 router.post('/', crearClienteSiNoExiste);
 router.put('/marcar-abonado', marcarClienteComoAbonado);
 router.put('/:id/actualizar-precio-abono', actualizarPrecioAbono);
-router.delete('/', eliminarTodosLosClientes); 
+router.put('/:id/desabonar', desabonarCliente);
+router.post('/:id/renovar-abono', renovarAbono);
+router.delete('/', eliminarTodosLosClientes);
 
 module.exports = router;

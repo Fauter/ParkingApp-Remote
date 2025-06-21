@@ -5,7 +5,8 @@ const {
   getAbonos,
   getAbonoPorId,
   registrarAbono,
-  eliminarAbonos
+  eliminarAbonos,
+  agregarAbono
 } = require('../controllers/abonoControllers');
 
 const router = express.Router();
@@ -34,6 +35,7 @@ const uploadFields = upload.fields([
 router.get('/', getAbonos);
 router.get('/:id', getAbonoPorId);
 router.post('/registrar-abono', uploadFields, registrarAbono);
+router.post('/agregar-abono', uploadFields, agregarAbono);
 router.delete('/', eliminarAbonos);
 
 module.exports = router;
