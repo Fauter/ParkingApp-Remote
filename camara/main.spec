@@ -4,7 +4,7 @@ block_cipher = None
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=[os.path.abspath('.')],
     binaries=[],
     datas=[
         ('platedetector/*.py', 'platedetector'),
@@ -29,7 +29,7 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name='main',
     debug=False,
     bootloader_ignore_signals=False,
