@@ -2,15 +2,13 @@ import cv2
 import numpy as np
 import time
 import math
-import os
 import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Agregamos anpr_easyocr al path para importar su módulo
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "anpr_easyocr")))
+from anpr_easyocr.anpr_easyocr import ocr_from_image
 
-from anpr_easyocr import ocr_from_image  # Importamos función OCR
-
-RTSP_URL = "rtsp://admin:@192.168.100.54:554/streaming/channels/1"
+RTSP_URL = "rtsp://admin:admin@192.168.100.54:554/streaming/channels/1"
 
 cap = cv2.VideoCapture(RTSP_URL)
 
