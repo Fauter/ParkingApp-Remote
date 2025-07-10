@@ -3,6 +3,7 @@ import numpy as np
 import time
 import subprocess
 import math
+import os
 
 RTSP_URL = "rtsp://admin:@192.168.100.54:554/streaming/channels/1"
 
@@ -15,7 +16,6 @@ if not cap.isOpened():
 cooldown = 10
 last_capture = time.time() - cooldown
 
-# Tiempo que debe mantenerse la placa estable para confirmar (segundos)
 plate_confirmed_time = 1.5
 last_plate_time = 0
 last_plate_pos = None
@@ -23,8 +23,8 @@ last_plate_pos = None
 print("Buscando placas dentro de la zona de interés central...")
 
 cv2.namedWindow("Zona de interes", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Zona de interes", 640, 360)  # Tamaño inicial
-cv2.moveWindow("Zona de interes", 100, 100)   # Posición en pantalla
+cv2.resizeWindow("Zona de interes", 640, 360)
+cv2.moveWindow("Zona de interes", 100, 100)
 
 def dist(p1, p2):
     return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
@@ -36,14 +36,11 @@ while True:
         break
 
     h_img, w_img = frame.shape[:2]
-
-    # Zona central para análisis (60% ancho x 60% alto)
     crop_x = int(w_img * 0.2)
     crop_y = int(h_img * 0.2)
     w_roi = int(w_img * 0.6)
     h_roi = int(h_img * 0.6)
 
-    # Extraemos ROI para procesar (no para mostrar)
     roi = frame[crop_y:crop_y+h_roi, crop_x:crop_x+w_roi]
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5,5), 0)
@@ -72,7 +69,6 @@ while True:
                     max_area = area
                     plate_candidate = (x_c, y_c, w_c, h_c)
 
-    # Lógica para confirmación temporal
     current_time = time.time()
     if plate_candidate is not None:
         px, py, pw, ph = plate_candidate
@@ -81,41 +77,38 @@ while True:
         if last_plate_pos is None:
             last_plate_pos = center_current
             last_plate_time = current_time
-            # No capturamos aún, esperando confirmación
-            # print("Placa detectada primer frame, esperando confirmación...")
         else:
             if dist(center_current, last_plate_pos) < 50:
-                # Placa estable
                 if current_time - last_plate_time >= plate_confirmed_time:
-                    # Confirmado para captura si cooldown cumplido
                     if current_time - last_capture > cooldown:
                         plate_img = frame[crop_y+py:crop_y+py+ph, crop_x+px:crop_x+px+pw]
-                        cv2.imwrite("real_plate.jpg", plate_img)
-                        print("⚠️ Placa confirmada y capturada tras persistencia.")
-                        last_capture = current_time
-                        subprocess.Popen(["python", "anpr_easyocr.py"])
-                else:
-                    # Seguimos acumulando tiempo
-                    pass
+                        if plate_img.size == 0:
+                            print("⚠️ ERROR: La imagen de la placa está vacía.")
+                        else:
+                            image_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "real_plate.jpg"))
+                            cv2.imwrite(image_path, plate_img)
+                            print("Imagen guardada correctamente.")
+
+                            # Ruta dinámica a easyocr.py y su entorno
+                            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+                            anpr_script = os.path.join(base_dir, "anpr_easyocr", "anpr_easyocr.py")
+                            anpr_python = os.path.join(base_dir, "anpr_easyocr", "venv-easyocr", "Scripts", "python.exe")
+
+                            subprocess.Popen([anpr_python, anpr_script], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                            last_capture = current_time  # IMPORTANTE: actualizar cooldown
             else:
-                # Se movió mucho, resetear timer y posición
                 last_plate_pos = center_current
                 last_plate_time = current_time
     else:
-        # No detectado, resetear
         last_plate_pos = None
         last_plate_time = 0
 
-    # Dibujos sobre frame original
-    # Rectángulo fijo zona ROI
     cv2.rectangle(frame, (crop_x, crop_y), (crop_x+w_roi, crop_y+h_roi), (0, 255, 0), 2)
 
-    # Rectángulo placa detectada (en coordenadas globales)
     if plate_candidate is not None:
         px, py, pw, ph = plate_candidate
         cv2.rectangle(frame, (crop_x+px, crop_y+py), (crop_x+px+pw, crop_y+py+ph), (0, 255, 0), 2)
 
-    # Mostrar en ventana achicada (30%)
     scale_percent = 30
     width = int(w_img * scale_percent / 100)
     height = int(h_img * scale_percent / 100)

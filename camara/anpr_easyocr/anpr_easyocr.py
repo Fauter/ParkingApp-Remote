@@ -7,7 +7,15 @@ import unicodedata
 
 class ArgentinePlateRecognizer:
     def __init__(self, max_horizontal_gap=40, min_confidence=0.2):
-        self.reader = easyocr.Reader(['es'], gpu=False, verbose=False)
+        # Añade download_enabled=False si ya tienes los modelos
+        self.reader = easyocr.Reader(
+            ['es'],
+            gpu=False,
+            verbose=False,
+            download_enabled=False,
+            detector=True,
+            recognizer=True
+        )
         self.max_horizontal_gap = max_horizontal_gap
         self.min_confidence = min_confidence
 
@@ -171,9 +179,10 @@ class ArgentinePlateRecognizer:
 
 def main():
     recognizer = ArgentinePlateRecognizer()
-    image_path = os.path.join(os.path.dirname(__file__), "real_plate.jpg")
+    image_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "real_plate.jpg"))
     result = recognizer.recognize_plate(image_path, debug=True)
     print("\nResultado final:", result)
+    input("\nPresioná ENTER para cerrar esta ventana...")
 
 
 if __name__ == "__main__":
