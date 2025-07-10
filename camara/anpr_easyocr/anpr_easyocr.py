@@ -6,6 +6,8 @@ import os
 import re
 import itertools
 import unicodedata
+import tkinter as tk
+from tkinter import messagebox
 
 class ArgentinePlateRecognizer:
     def __init__(self, max_horizontal_gap=40, min_confidence=0.2):
@@ -128,23 +130,6 @@ class ArgentinePlateRecognizer:
                                 print(f"[DEBUG] Combinación triple ambigua válida: '{a}' + '{b}' + '{c}' → {variant}")
                             return variant
 
-        fallback = ''.join(self.clean_text(t) for _, t, _ in group if not should_ignore(self.clean_text(t)))
-        if debug:
-            print(f"[DEBUG] Fallback con todos concatenados: '{fallback}'")
-
-        for length in [7, 6]:
-            for i in range(len(fallback) - length + 1):
-                candidate = fallback[i:i+length]
-                if self.validate_plate_format(candidate):
-                    if debug:
-                        print(f"[DEBUG] Fallback substring válida: {candidate}")
-                    return candidate
-                for variant in self.generate_ambiguity_variants(candidate):
-                    if self.validate_plate_format(variant):
-                        if debug:
-                            print(f"[DEBUG] Fallback substring ambigua válida: {variant}")
-                        return variant
-
         return None
 
     def recognize_plate(self, image_path, debug=False):
@@ -168,19 +153,34 @@ class ArgentinePlateRecognizer:
             print(f"\n[DEBUG] Se agruparon en {len(groups)} grupos.\n")
 
         candidate = self.extract_candidate_from_group(groups[0], debug=debug)
-        return candidate or "No se detectó patente válida."
 
-# Función para llamar desde platedetector.py
+        if candidate:
+            return candidate
+        else:
+            raw_detected = [self.clean_text(t) for _, t, _ in results if t.strip()]
+            return None, raw_detected
+
+
 def ocr_from_image(image_path, debug=False):
     recognizer = ArgentinePlateRecognizer()
     result = recognizer.recognize_plate(image_path, debug=debug)
 
-    if result and "Error" not in result and "No se detectó" not in result:
+    # Crear ventana oculta para el popup
+    root = tk.Tk()
+    root.withdraw()
+
+    if isinstance(result, tuple):
+        candidate, raw_texts = result
+    else:
+        candidate = result
+        raw_texts = []
+
+    if candidate and "Error" not in candidate:
         validated_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "patentes_validadas"))
         os.makedirs(validated_dir, exist_ok=True)
 
         extension = os.path.splitext(image_path)[-1].lower()
-        new_image_path = os.path.join(validated_dir, f"{result}{extension}")
+        new_image_path = os.path.join(validated_dir, f"{candidate}{extension}")
 
         try:
             import shutil
@@ -190,9 +190,20 @@ def ocr_from_image(image_path, debug=False):
         except Exception as e:
             print(f"⚠️ Error al copiar imagen: {e}")
 
-    return result
+        messagebox.showinfo("Patente detectada", f"✅ Patente detectada: {candidate}")
+    else:
+        msg = "❌ No se detectó patente válida."
+        if raw_texts:
+            msg += "\nTextos leídos: " + ", ".join(raw_texts)
+        elif isinstance(candidate, str) and "Error" in candidate:
+            msg += f"\n{candidate}"
 
-# Si querés que siga funcionando en modo standalone, lo mantenés así:
+        messagebox.showwarning("Patente no detectada", msg)
+
+    root.destroy()
+    return candidate if isinstance(candidate, str) else None
+
+
 if __name__ == "__main__":
     image_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "real_plate.jpg"))
     result = ocr_from_image(image_path, debug=True)

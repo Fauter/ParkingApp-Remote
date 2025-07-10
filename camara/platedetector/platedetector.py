@@ -8,7 +8,21 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from anpr_easyocr.anpr_easyocr import ocr_from_image
 
-RTSP_URL = "rtsp://admin:admin@192.168.100.54:554/streaming/channels/1"
+def cargar_rtsp():
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config.txt"))
+    if not os.path.exists(config_path):
+        print("⚠️ No se encontró el archivo config.txt. Por favor crealo con la línea: RTSP_URL=...")
+        exit()
+
+    with open(config_path, "r") as f:
+        for line in f:
+            if line.startswith("RTSP_URL="):
+                return line.strip().split("=", 1)[1]
+
+    print("⚠️ No se encontró una línea válida de RTSP_URL en config.txt.")
+    exit()
+
+RTSP_URL = cargar_rtsp()
 
 cap = cv2.VideoCapture(RTSP_URL)
 
@@ -19,7 +33,7 @@ if not cap.isOpened():
 cooldown = 10
 last_capture = time.time() - cooldown
 
-plate_confirmed_time = 1.5
+plate_confirmed_time = 1.2
 last_plate_time = 0
 last_plate_pos = None
 
