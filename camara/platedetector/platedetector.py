@@ -1,9 +1,14 @@
 import cv2
 import numpy as np
 import time
-import subprocess
 import math
 import os
+import sys
+
+# Agregamos anpr_easyocr al path para importar su módulo
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "anpr_easyocr")))
+
+from anpr_easyocr import ocr_from_image  # Importamos función OCR
 
 RTSP_URL = "rtsp://admin:@192.168.100.54:554/streaming/channels/1"
 
@@ -89,13 +94,11 @@ while True:
                             cv2.imwrite(image_path, plate_img)
                             print("Imagen guardada correctamente.")
 
-                            # Ruta dinámica a easyocr.py y su entorno
-                            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-                            anpr_script = os.path.join(base_dir, "anpr_easyocr", "anpr_easyocr.py")
-                            anpr_python = os.path.join(base_dir, "anpr_easyocr", "venv-easyocr", "Scripts", "python.exe")
+                            # Llamada directa a OCR, sin subprocess
+                            ocr_result = ocr_from_image(image_path, debug=True)
+                            print("Resultado OCR:", ocr_result)
 
-                            subprocess.Popen([anpr_python, anpr_script], creationflags=subprocess.CREATE_NEW_CONSOLE)
-                            last_capture = current_time  # IMPORTANTE: actualizar cooldown
+                            last_capture = current_time  # actualizar cooldown
             else:
                 last_plate_pos = center_current
                 last_plate_time = current_time

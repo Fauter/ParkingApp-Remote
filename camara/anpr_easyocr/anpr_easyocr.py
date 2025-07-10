@@ -1,3 +1,5 @@
+# back-end/camara/anpr_easyocr/anpr_easyocr.py
+
 import easyocr
 import cv2
 import os
@@ -7,7 +9,6 @@ import unicodedata
 
 class ArgentinePlateRecognizer:
     def __init__(self, max_horizontal_gap=40, min_confidence=0.2):
-        # Añade download_enabled=False si ya tienes los modelos
         self.reader = easyocr.Reader(
             ['es'],
             gpu=False,
@@ -43,11 +44,9 @@ class ArgentinePlateRecognizer:
         return re.sub(r'[^A-Z0-9]', '', text)
 
     def validate_plate_format(self, text):
-        # Validamos sólo 6 o 7 caracteres, no 8 ni más
         if len(text) == 6:
-            return text[:3].isalpha() and text[3:].isdigit()  # ABC123
+            return text[:3].isalpha() and text[3:].isdigit()
         elif len(text) == 7:
-            # AB123CD o A123BCD (moto)
             return (
                 (text[:2].isalpha() and text[2:5].isdigit() and text[5:].isalpha()) or
                 (text[0].isalpha() and text[1:4].isdigit() and text[4:].isalpha())
@@ -84,14 +83,12 @@ class ArgentinePlateRecognizer:
 
         cleaned_texts = [t for t, _ in filtered_texts]
 
-        # 1. Candidatos individuales válidos
         for candidate in cleaned_texts:
             if self.validate_plate_format(candidate):
                 if debug:
                     print(f"[DEBUG] Candidato directo válido: {candidate}")
                 return candidate
 
-        # 2. Combinación total concatenada (sólo si no supera 7 chars)
         combined = ''.join(cleaned_texts)
         if len(combined) <= 7 and self.validate_plate_format(combined):
             if debug:
@@ -104,7 +101,6 @@ class ArgentinePlateRecognizer:
                         print(f"[DEBUG] Variante ambigua válida de combinación total: {variant}")
                     return variant
 
-        # 3. Combinaciones por pares en cualquier orden (permuts), sólo hasta 7 chars
         for a, b in itertools.permutations(cleaned_texts, 2):
             ab = a + b
             if len(ab) <= 7 and self.validate_plate_format(ab):
@@ -118,7 +114,6 @@ class ArgentinePlateRecognizer:
                             print(f"[DEBUG] Combinación ambigua válida: '{a}' + '{b}' → {variant}")
                         return variant
 
-        # 4. Combinaciones triples para formato moto separado en 3 fragmentos, sólo hasta 7 chars
         if len(cleaned_texts) >= 3:
             for a, b, c in itertools.permutations(cleaned_texts, 3):
                 abc = a + b + c
@@ -133,12 +128,11 @@ class ArgentinePlateRecognizer:
                                 print(f"[DEBUG] Combinación triple ambigua válida: '{a}' + '{b}' + '{c}' → {variant}")
                             return variant
 
-        # 5. Fallback con sliding window
         fallback = ''.join(self.clean_text(t) for _, t, _ in group if not should_ignore(self.clean_text(t)))
         if debug:
             print(f"[DEBUG] Fallback con todos concatenados: '{fallback}'")
 
-        for length in [7, 6]:  # 8 eliminado para no pasar largo
+        for length in [7, 6]:
             for i in range(len(fallback) - length + 1):
                 candidate = fallback[i:i+length]
                 if self.validate_plate_format(candidate):
@@ -176,14 +170,31 @@ class ArgentinePlateRecognizer:
         candidate = self.extract_candidate_from_group(groups[0], debug=debug)
         return candidate or "No se detectó patente válida."
 
-
-def main():
+# Función para llamar desde platedetector.py
+def ocr_from_image(image_path, debug=False):
     recognizer = ArgentinePlateRecognizer()
+    result = recognizer.recognize_plate(image_path, debug=debug)
+
+    if result and "Error" not in result and "No se detectó" not in result:
+        validated_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "patentes_validadas"))
+        os.makedirs(validated_dir, exist_ok=True)
+
+        extension = os.path.splitext(image_path)[-1].lower()
+        new_image_path = os.path.join(validated_dir, f"{result}{extension}")
+
+        try:
+            import shutil
+            shutil.copy(image_path, new_image_path)
+            if debug:
+                print(f"[DEBUG] Imagen copiada a: {new_image_path}")
+        except Exception as e:
+            print(f"⚠️ Error al copiar imagen: {e}")
+
+    return result
+
+# Si querés que siga funcionando en modo standalone, lo mantenés así:
+if __name__ == "__main__":
     image_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "real_plate.jpg"))
-    result = recognizer.recognize_plate(image_path, debug=True)
+    result = ocr_from_image(image_path, debug=True)
     print("\nResultado final:", result)
     input("\nPresioná ENTER para cerrar esta ventana...")
-
-
-if __name__ == "__main__":
-    main()
