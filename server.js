@@ -18,11 +18,13 @@ const parametrosRoutes = require('./routes/parametros.js');
 const calcularTarifaRoutes = require('./routes/calcularTarifaRoutes.js');
 const turnoRoutes = require('./routes/turnoRoutes.js');
 const clienteRoutes = require('./routes/clienteRoutes.js');
-const promoRoutes = require('./routes/promoRoutes.js')
-const cierreDeCajaRoutes = require('./routes/cierreDeCajaRoutes.js')
-const incidenteRoutes = require('./routes/incidenteRoutes.js')
-const alertaRoutes = require('./routes/alertaRoutes.js')
-const auditoriaRoutes = require('./routes/auditoriaRoutes.js')
+const promoRoutes = require('./routes/promoRoutes.js');
+const cierreDeCajaRoutes = require('./routes/cierreDeCajaRoutes.js');
+const incidenteRoutes = require('./routes/incidenteRoutes.js');
+const alertaRoutes = require('./routes/alertaRoutes.js');
+const auditoriaRoutes = require('./routes/auditoriaRoutes.js');
+const camaraRoutes = require('./routes/camaraRoutes');
+const ticketRoutes = require('./routes/ticketRoutes');
 
 const app = express();
 
@@ -30,14 +32,27 @@ const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:5173',
   'https://admin.garageia.com',
-  'https://operador.garageia.com'
+  'https://operador.garageia.com',
+  'app://*', // Para Electron
+  'file://*' // Para Electron en desarrollo
 ];
 
 // CORS configurado con credenciales y whitelist de orígenes
+// app.use(cors({
+//   origin: function(origin, callback) {
+//     if (!origin) return callback(null, true); // Postman o sin origen
+//     if (allowedOrigins.includes(origin)) return callback(null, true);
+//     return callback(new Error('No permitido por CORS'));
+//   },
+//   credentials: true,
+// }));
+
 app.use(cors({
   origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // Postman o sin origen
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      return callback(null, true);
+    }
     return callback(new Error('No permitido por CORS'));
   },
   credentials: true,
@@ -50,25 +65,26 @@ app.use(express.urlencoded({ extended: true }));
 // Crear directorios si no existen
 const uploadsDir = path.join(__dirname, 'uploads');
 const fotosDir = path.join(uploadsDir, 'fotos');
+const entradasDir = path.join(fotosDir, 'entradas');
 const auditoriasDir = path.join(uploadsDir, 'auditorias');
 
-[uploadsDir, fotosDir, auditoriasDir].forEach(dir => {
+[uploadsDir, fotosDir, entradasDir, auditoriasDir].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 });
 
 // Configurar rutas estáticas
-app.use('/uploads/fotos', express.static(path.join(__dirname, 'uploads', 'fotos'), {
+app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads/fotos', express.static(fotosDir, {
   setHeaders: (res, filePath) => {
-    // Permitir CORS para las imágenes
     res.set('Access-Control-Allow-Origin', '*');
-    // Cache control para desarrollo
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   }
 }));
 app.use('/uploads/auditorias', express.static(auditoriasDir));
 
+// Conexión a MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log("✅ Conectado a MongoDB Atlas");
@@ -94,29 +110,40 @@ app.use('/api/cierresDeCaja', cierreDeCajaRoutes);
 app.use('/api/incidentes', incidenteRoutes);
 app.use('/api/alertas', alertaRoutes);
 app.use('/api/auditorias', auditoriaRoutes);
+app.use('/api/camara', camaraRoutes);
+app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'sacarfoto')));
+app.use('/api/tickets', ticketRoutes);
+app.use('/api/ticket', ticketRoutes);
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);
+
+if (process.env.ELECTRON_MODE) {
+  app.use((req, res, next) => {
+    if (req.headers.origin && req.headers.origin.startsWith('file://')) {
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    next();
+  });
+}
 if (process.env.NODE_ENV === 'production') {
   const clientPath = path.join(__dirname, '../../admin.garageia.com/public_html');
-  
-  // Verificar si el directorio existe
-  if (!fs.existsSync(clientPath)) {
-    
-  } else {
+
+  if (fs.existsSync(clientPath)) {
     app.use(express.static(clientPath));
 
     app.get('*', (req, res) => {
       if (req.originalUrl.startsWith('/api/')) {
         return res.status(404).json({ error: 'API route not found' });
       }
-      
+
       const indexPath = path.join(clientPath, 'index.html');
       if (!fs.existsSync(indexPath)) {
         console.error('❌ No se encontró index.html en:', indexPath);
         return res.status(404).send('Archivo no encontrado');
       }
-      
+
       res.sendFile(indexPath);
     });
   }

@@ -1,0 +1,97 @@
+import sys
+import win32print
+import win32ui
+from PIL import Image, ImageWin
+import requests
+from io import BytesIO
+
+def imprimir_codigo_barras(pdc, codigo, x, y):
+    try:
+        barcode_url = 'http://localhost:5000/api/tickets/barcode'
+        response = requests.post(barcode_url, json={'text':  codigo}, timeout=5)
+        
+        if response.status_code != 200:
+            print(f"Error API código barras: {response.status_code}")
+            return 0
+
+        with Image.open(BytesIO(response.content)) as img:
+            # Evitar cuadrado negro en caso de transparencia
+            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                fondo = Image.new("RGB", img.size, (255, 255, 255))
+                fondo.paste(img, mask=img.split()[3])
+                bmp = fondo
+            else:
+                bmp = img.convert("RGB")
+
+            # ❌ Ya no redimensionamos porque viene del tamaño justo
+            ancho_final, alto_final = bmp.size
+
+            dib = ImageWin.Dib(bmp)
+            dib.draw(pdc.GetHandleOutput(), (x, y, x + ancho_final, y + alto_final))
+
+        return alto_final
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error de conexión: {e}")
+    except Exception as e:
+        print(f"Error inesperado: {e}")
+    return 0
+
+def imprimir_ticket(texto):
+    try:
+        printer_name = win32print.GetDefaultPrinter()
+        if not printer_name:
+            print("No se encontró impresora predeterminada")
+            return False
+            
+        hprinter = win32print.OpenPrinter(printer_name)
+        dc = win32ui.CreateDC()
+        dc.CreatePrinterDC(printer_name)
+        dc.StartDoc("Ticket de Parking")
+        dc.StartPage()
+
+        ticket_num = texto.split('\n')[0].strip()
+
+        font = win32ui.CreateFont({
+            "name": "Courier New",
+            "height": -35,
+            "weight": 600,
+        })
+        dc.SelectObject(font)
+
+        y_pos = 100
+        line_height = 50
+        
+        for linea in texto.split("\n"):
+            dc.TextOut(50, y_pos, linea)
+            y_pos += line_height
+
+        y_pos += 20
+
+        alto_codigo = imprimir_codigo_barras(dc, ticket_num, 50, y_pos)
+        if alto_codigo > 0:
+            dc.TextOut(50, y_pos + alto_codigo + 10, f"Código: {ticket_num}")
+        else:
+            print("No se pudo imprimir código de barras, usando texto alternativo")
+            dc.TextOut(50, y_pos, f"[CODIGO BARRAS: {ticket_num}]")
+
+        dc.EndPage()
+        dc.EndDoc()
+        dc.DeleteDC()
+        win32print.ClosePrinter(hprinter)
+
+        print("Ticket impreso exitosamente")
+        return True
+
+    except Exception as e:
+        print(f"Error crítico al imprimir: {e}")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        texto = sys.argv[1].replace("\\n", "\n")
+        exit_code = 0 if imprimir_ticket(texto) else 1
+        sys.exit(exit_code)
+    else:
+        print("Uso: python imprimir_ticket.py 'Texto\\ndel\\nticket'")
+        sys.exit(1)

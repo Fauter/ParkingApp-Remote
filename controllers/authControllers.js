@@ -123,13 +123,13 @@ exports.getAllUsers = async (req, res) => {
 };
 
 exports.getProfile = (req, res) => {
-    // Aquí ya tenés el usuario
-    res.json({
-        username: req.user.username,
-        nombre: req.user.nombre,
-        apellido: req.user.apellido,
-        role: req.user.role
-    });
+  res.json({
+    _id: req.user._id,
+    username: req.user.username,
+    nombre: req.user.nombre,
+    apellido: req.user.apellido,
+    role: req.user.role
+  });
 };
 
 exports.deleteUserById = async (req, res) => {
