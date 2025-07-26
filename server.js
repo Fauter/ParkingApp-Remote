@@ -25,10 +25,12 @@ const alertaRoutes = require('./routes/alertaRoutes.js');
 const auditoriaRoutes = require('./routes/auditoriaRoutes.js');
 const camaraRoutes = require('./routes/camaraRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
+const fotoRoutes = require('./routes/fotoRoutes');
 
 const app = express();
 
 const allowedOrigins = [
+  'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5173',
   'https://admin.garageia.com',
@@ -112,6 +114,7 @@ app.use('/api/alertas', alertaRoutes);
 app.use('/api/auditorias', auditoriaRoutes);
 app.use('/api/camara', camaraRoutes);
 app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'sacarfoto')));
+app.use('/api/fotos', fotoRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/ticket', ticketRoutes);
 

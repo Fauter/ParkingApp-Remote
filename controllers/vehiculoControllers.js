@@ -401,6 +401,50 @@ exports.getVehiculoByTicket = async (req, res) => {
     res.status(500).json({ msg: "Error del servidor" });
   }
 };
+exports.getVehiculoByTicketAdmin = async (req, res) => {
+  try {
+    const { ticket } = req.params;
+    const ticketNum = parseInt(ticket, 10);
+
+    if (isNaN(ticketNum)) {
+      return res.status(400).json({ msg: "Número de ticket inválido" });
+    }
+
+    // Buscar vehículo con estadiaActual.ticket igual al ticket
+    let vehiculo = await Vehiculo.findOne({ "estadiaActual.ticket": ticketNum }).select('-__v');
+
+    if (vehiculo) {
+      // Encontró en estadiaActual
+      const estadia = vehiculo.estadiaActual;
+
+      // Agregar ticket formateado para comodidad
+      estadia.ticketFormateado = String(estadia.ticket).padStart(10, '0');
+
+      return res.json({ vehiculo, estadia });
+    }
+
+    // Si no encontró, buscar en historialEstadias
+    vehiculo = await Vehiculo.findOne({ "historialEstadias.ticket": ticketNum }).select('-__v');
+
+    if (!vehiculo) {
+      return res.status(404).json({ msg: "Vehículo no encontrado para este ticket" });
+    }
+
+    // Buscar la estadía en historialEstadias con el ticket buscado
+    const estadia = vehiculo.historialEstadias.find(e => String(e.ticket) === String(ticketNum));
+
+    if (!estadia) {
+      return res.status(404).json({ msg: "Estadía no encontrada para este ticket en el historial" });
+    }
+
+    estadia.ticketFormateado = String(estadia.ticket).padStart(10, '0');
+
+    return res.json({ vehiculo, estadia });
+  } catch (err) {
+    console.error("Error en getVehiculoByTicketAdmin:", err);
+    return res.status(500).json({ msg: "Error del servidor" });
+  }
+};
 
 // Eliminar todos los vehículos
 exports.eliminarTodosLosVehiculos = async (req, res) => {

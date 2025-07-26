@@ -10,7 +10,8 @@ const MovimientoSchema = new mongoose.Schema({
   factura: { type: String, enum: ['CC', 'A', 'Final'], required: true },
   monto: { type: Number, required: true },
   promo: { type: mongoose.Schema.Types.Mixed, default: 0 },
-  tipoTarifa: { type: String }
+  tipoTarifa: { type: String },
+  ticket: { type: Number }
 });
 
 module.exports = mongoose.model('Movimiento', MovimientoSchema);

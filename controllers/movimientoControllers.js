@@ -3,14 +3,22 @@ const Movimiento = require('../models/Movimiento')
 
 exports.registrarMovimiento = async (req, res) => {
     try {
-        const { patente, operador, tipoVehiculo, metodoPago, factura, monto, descripcion, tipoTarifa } = req.body;
+        const { patente, operador, tipoVehiculo, metodoPago, factura, monto, descripcion, tipoTarifa, ticket } = req.body;
 
         if (!patente || !operador || !tipoVehiculo || !metodoPago || !factura || !monto || !descripcion) {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
-        const nuevoMovimiento = new Movimiento({ 
-            patente, operador, tipoVehiculo, metodoPago, factura, monto, descripcion, tipoTarifa 
+        const nuevoMovimiento = new Movimiento({
+            patente,
+            operador,
+            tipoVehiculo,
+            metodoPago,
+            factura,
+            monto,
+            descripcion,
+            tipoTarifa,
+            ...(ticket ? { ticket } : {})
         });
 
         await nuevoMovimiento.save();

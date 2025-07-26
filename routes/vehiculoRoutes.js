@@ -8,6 +8,7 @@ const {
     getVehiculos, 
     getVehiculoByPatente, 
     getVehiculoById,
+    getVehiculoByTicketAdmin,
     getTiposVehiculo,
     asignarAbonoAVehiculo, 
     registrarEntrada,
@@ -91,6 +92,8 @@ router.get('/ticket/:ticket', async (req, res) => {
     res.status(500).json({ msg: "Error del servidor" });
   }
 });
+router.get('/ticket-admin/:ticket', getVehiculoByTicketAdmin);
+
 
 router.delete('/eliminar-foto-temporal', async (req, res) => {
     try {

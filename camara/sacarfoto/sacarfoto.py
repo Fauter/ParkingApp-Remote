@@ -1,6 +1,5 @@
 import cv2
 import os
-import time
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -16,14 +15,13 @@ def cargar_rtsp():
                 return line.strip().split("=", 1)[1]
     return None
 
-def sacar_foto():
+def sacar_foto(nombre_archivo="captura.jpg"):
     rtsp_url = cargar_rtsp()
     if not rtsp_url:
         print("❌ No se pudo obtener RTSP_URL")
         return
 
     cap = cv2.VideoCapture(rtsp_url)
-
     if not cap.isOpened():
         print("❌ No se pudo abrir la cámara.")
         return
@@ -34,10 +32,14 @@ def sacar_foto():
         cap.release()
         return
 
-    output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "captura.jpg"))
+    output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), nombre_archivo))
     cv2.imwrite(output_path, frame)
     print(f"Foto guardada en {output_path}")
     cap.release()
 
 if __name__ == "__main__":
-    sacar_foto()
+    # Si se pasa "test" como argumento, guarda con otro nombre
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        sacar_foto("capturaTest.jpg")
+    else:
+        sacar_foto("captura.jpg")
