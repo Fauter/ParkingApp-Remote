@@ -51,13 +51,9 @@ async function actualizarEstadoTurnoVehiculo(patente) {
 }
 
 async function guardarFotoVehiculo(patente, fotoUrl) {
-  if (!fotoUrl || !fotoUrl.includes('captura.jpg')) {
-    // No hay foto para guardar
-    return null;
-  }
+  if (!fotoUrl) return null;
 
   try {
-    // Descargar la foto desde la URL
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(response.data, 'binary');
     
@@ -69,7 +65,7 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
     // Guardar el archivo
     fs.writeFileSync(rutaArchivo, buffer);
 
-    // Borrar la foto temporal captura.jpg luego de copiarla
+    // Borrar la foto temporal captura.jpg luego de copiarla (si existe)
     if (fs.existsSync(RUTA_FOTO_TEMPORAL)) {
       try {
         fs.unlinkSync(RUTA_FOTO_TEMPORAL);
@@ -81,11 +77,15 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
       console.log('Foto temporal captura.jpg no encontrada para eliminar.');
     }
     
-    // Retornar la ruta pública
+    // Retornar la ruta pública correcta del archivo guardado
     return `/uploads/fotos/entradas/${nombreArchivo}`;
-  } catch (error) {
-    console.error('Error al guardar la foto:', error);
-    return null;
+  } catch (err) {
+    if (err.response && err.response.status === 404) {
+      console.warn(`No se encontró la foto para ${patente} en ${fotoUrl}`);
+      return null; // No hay foto, sigue sin foto
+    }
+    // Otros errores los lanzamos para que los capture la función que llama
+    throw err;
   }
 }
 

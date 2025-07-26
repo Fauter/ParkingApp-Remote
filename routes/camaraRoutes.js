@@ -58,13 +58,13 @@ router.get('/sacarfoto', (req, res) => {
   const scriptPath = path.join(__dirname, '..', 'camara', 'sacarfoto', 'sacarfoto.py');
 
   exec(`python "${scriptPath}"`, (error, stdout, stderr) => {
-    if (error) {
-      console.error(`❌ Error ejecutando el script: ${error.message}`);
-      return res.status(500).send('Error al ejecutar el script');
+    const salida = stdout.trim();
+    console.log(`📸 STDOUT: ${salida}`);
+    if (error || !salida.includes("OK")) {
+      console.error(`❌ Error en captura: ${error?.message || 'Salida inesperada'}`);
+      return res.json({ exito: false, mensaje: "No se pudo capturar la foto." });
     }
-    if (stderr) console.error(`⚠️ STDERR: ${stderr}`);
-    console.log(`📸 STDOUT: ${stdout}`);
-    res.send('Foto capturada correctamente');
+    return res.json({ exito: true, mensaje: "Foto capturada correctamente." });
   });
 });
 

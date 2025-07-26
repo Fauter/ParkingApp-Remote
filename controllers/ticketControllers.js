@@ -37,21 +37,29 @@ async function guardarFotoTicket(ticketId, fotoUrl) {
   }
 
   try {
-    // Descargar la foto desde la URL
-    const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(response.data, 'binary');
+    // Verificar primero si la foto existe
+    const headResponse = await axios.head(fotoUrl);
+    if (headResponse.status !== 200) {
+      return null; // Si no existe, retornar null sin error
+    }
+
+    // Si existe, proceder a descargarla
+    const response = await axios.get(fotoUrl, { 
+      responseType: 'arraybuffer',
+      validateStatus: status => status === 200 // Solo considerar 200 como éxito
+    });
     
-    // Crear nombre de archivo único
+    const buffer = Buffer.from(response.data, 'binary');
     const nombreArchivo = `ticket_${ticketId}.jpg`;
     const rutaArchivo = path.join(FOTOS_ENTRADAS_DIR, nombreArchivo);
     
-    // Guardar el archivo
     fs.writeFileSync(rutaArchivo, buffer);
-    
-    // Retornar la ruta pública (ajustada al nuevo directorio)
     return `/uploads/fotos/entradas/${nombreArchivo}`;
   } catch (error) {
-    console.error('Error al guardar la foto del ticket:', error);
+    if (error.response && error.response.status === 404) {
+      return null; // Foto no encontrada, no es un error crítico
+    }
+    console.error('Error al guardar la foto del ticket:', error.message); // Solo mensaje del error
     return null;
   }
 }
