@@ -1,9 +1,45 @@
 import sys
+import os
+import json
 import win32print
 import win32ui
 from PIL import Image, ImageWin
 import requests
 from io import BytesIO
+
+# Ruta absoluta correcta al archivo impresora.json dentro de back-end/configuracion/
+CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'configuracion', 'impresora.json'))
+
+def obtener_impresora_configurada():
+    print(f"DEBUG: Leyendo impresora desde: {CONFIG_PATH}")
+    if not os.path.isfile(CONFIG_PATH):
+        print("DEBUG: No existe archivo impresora.json")
+        return None
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            impresora = data.get('impresora')
+            if impresora and isinstance(impresora, str):
+                print(f"DEBUG: Impresora configurada: '{impresora}'")
+                return impresora
+            else:
+                print("DEBUG: No hay impresora configurada válida en JSON")
+    except Exception as e:
+        print(f"No se pudo leer impresora configurada: {e}")
+    return None
+
+def impresora_disponible(nombre_impresora):
+    try:
+        impresoras = [p[2] for p in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+        if nombre_impresora in impresoras:
+            return True
+        else:
+            print(f"WARNING: Impresora configurada '{nombre_impresora}' NO está disponible en el sistema.")
+            print(f"Impresoras disponibles: {impresoras}")
+            return False
+    except Exception as e:
+        print(f"Error verificando impresoras instaladas: {e}")
+        return False
 
 def imprimir_codigo_barras(pdc, codigo, x, y):
     try:
@@ -15,7 +51,6 @@ def imprimir_codigo_barras(pdc, codigo, x, y):
             return 0
 
         with Image.open(BytesIO(response.content)) as img:
-            # Evitar cuadrado negro en caso de transparencia
             if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
                 fondo = Image.new("RGB", img.size, (255, 255, 255))
                 fondo.paste(img, mask=img.split()[3])
@@ -23,9 +58,7 @@ def imprimir_codigo_barras(pdc, codigo, x, y):
             else:
                 bmp = img.convert("RGB")
 
-            # ❌ Ya no redimensionamos porque viene del tamaño justo
             ancho_final, alto_final = bmp.size
-
             dib = ImageWin.Dib(bmp)
             dib.draw(pdc.GetHandleOutput(), (x, y, x + ancho_final, y + alto_final))
 
@@ -39,11 +72,16 @@ def imprimir_codigo_barras(pdc, codigo, x, y):
 
 def imprimir_ticket(texto):
     try:
-        printer_name = win32print.GetDefaultPrinter()
+        printer_name = obtener_impresora_configurada()
+
         if not printer_name:
-            print("No se encontró impresora predeterminada")
+            print("ERROR: No hay impresora configurada en impresora.json. No se imprimirá.")
             return False
-            
+
+        if not impresora_disponible(printer_name):
+            print("ERROR: La impresora configurada no está disponible. No se imprimirá.")
+            return False
+
         hprinter = win32print.OpenPrinter(printer_name)
         dc = win32ui.CreateDC()
         dc.CreatePrinterDC(printer_name)

@@ -26,6 +26,8 @@ const auditoriaRoutes = require('./routes/auditoriaRoutes.js');
 const camaraRoutes = require('./routes/camaraRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 const fotoRoutes = require('./routes/fotoRoutes');
+const impresoraRoutes = require('./routes/impresoraRoutes');
+
 
 const app = express();
 
@@ -117,6 +119,8 @@ app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'saca
 app.use('/api/fotos', fotoRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/ticket', ticketRoutes);
+app.use('/api/impresoras', impresoraRoutes);
+
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);

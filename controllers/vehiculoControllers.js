@@ -14,6 +14,9 @@ const UPLOADS_DIR = path.join(__dirname, '../uploads');
 const FOTOS_DIR = path.join(UPLOADS_DIR, 'fotos');
 const FOTOS_ENTRADAS_DIR = path.join(FOTOS_DIR, 'entradas');
 
+// Ruta absoluta de la foto temporal captura.jpg
+const RUTA_FOTO_TEMPORAL = path.join(__dirname, '../camara/sacarfoto/captura.jpg');
+
 // Crear directorios si no existen
 [UPLOADS_DIR, FOTOS_DIR, FOTOS_ENTRADAS_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
@@ -49,6 +52,7 @@ async function actualizarEstadoTurnoVehiculo(patente) {
 
 async function guardarFotoVehiculo(patente, fotoUrl) {
   if (!fotoUrl || !fotoUrl.includes('captura.jpg')) {
+    // No hay foto para guardar
     return null;
   }
 
@@ -64,6 +68,18 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
     
     // Guardar el archivo
     fs.writeFileSync(rutaArchivo, buffer);
+
+    // Borrar la foto temporal captura.jpg luego de copiarla
+    if (fs.existsSync(RUTA_FOTO_TEMPORAL)) {
+      try {
+        fs.unlinkSync(RUTA_FOTO_TEMPORAL);
+        console.log('Foto temporal captura.jpg eliminada después de guardarla.');
+      } catch (unlinkErr) {
+        console.error('Error al eliminar foto temporal captura.jpg:', unlinkErr);
+      }
+    } else {
+      console.log('Foto temporal captura.jpg no encontrada para eliminar.');
+    }
     
     // Retornar la ruta pública
     return `/uploads/fotos/entradas/${nombreArchivo}`;
