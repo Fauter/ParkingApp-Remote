@@ -27,6 +27,7 @@ const camaraRoutes = require('./routes/camaraRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
 const fotoRoutes = require('./routes/fotoRoutes');
 const impresoraRoutes = require('./routes/impresoraRoutes');
+const configRoutes = require('./routes/configRoutes');
 
 
 const app = express();
@@ -120,7 +121,11 @@ app.use('/api/fotos', fotoRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/ticket', ticketRoutes);
 app.use('/api/impresoras', impresoraRoutes);
+app.use('/api/config', configRoutes);
 
+app.get('/api/status', (req, res) => {
+  res.json({ online: true });
+});
 
 // Servir frontend en producción
 console.log('NODE_ENV:', process.env.NODE_ENV);
