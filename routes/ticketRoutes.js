@@ -3,8 +3,19 @@ const ticketController = require('../controllers/ticketControllers');
 const barcodeController = require('../controllers/barcodeControllers'); 
 const { execFile } = require('child_process');
 const path = require('path');
+const Ticket = require('../models/Ticket');
 
 const router = express.Router();
+
+router.get('/', async (req, res) => {
+  try {
+    const tickets = await Ticket.find().sort({ creadoEn: -1 });
+    res.json(tickets);
+  } catch (err) {
+    console.error('Error al obtener tickets:', err.message);
+    res.status(500).json({ msg: 'Error del servidor' });
+  }
+});
 
 // Crear ticket
 router.post('/', ticketController.crearTicket);

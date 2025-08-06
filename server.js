@@ -25,6 +25,7 @@ const alertaRoutes = require('./routes/alertaRoutes.js');
 const auditoriaRoutes = require('./routes/auditoriaRoutes.js');
 const camaraRoutes = require('./routes/camaraRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
+const counterRoutes = require('./routes/counterRoutes');
 const fotoRoutes = require('./routes/fotoRoutes');
 const impresoraRoutes = require('./routes/impresoraRoutes');
 const configRoutes = require('./routes/configRoutes');
@@ -120,11 +121,16 @@ app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'saca
 app.use('/api/fotos', fotoRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/ticket', ticketRoutes);
+app.use('/api/counters', counterRoutes)
 app.use('/api/impresoras', impresoraRoutes);
 app.use('/api/config', configRoutes);
 
 app.get('/api/status', (req, res) => {
-  res.json({ online: true });
+  res.json({
+    online: true,
+    mode: 'remoto',
+    timestamp: new Date(),
+  });
 });
 
 // Servir frontend en producción
