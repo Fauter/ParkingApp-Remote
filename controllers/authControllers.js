@@ -69,19 +69,49 @@ exports.login = async (req, res) => {
             return res.status(400).json({ msg: "Faltan datos" });
         }
 
-        let user = await User.findOne({ username });
-        if (!user) return res.status(400).json({ msg: "Credenciales incorrectas" });
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ msg: "Credenciales incorrectas" });
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(400).json({ msg: "Credenciales incorrectas" });
+        }
 
+        const storedPassword = user.password;
+
+        let passwordOk = false;
+
+        // 🧠 Detectamos si la contraseña almacenada es un hash de bcrypt (empieza con $2a$ o $2b$ o $2y$)
+        const isHashed = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
+
+        if (isHashed) {
+            // 🔐 Comparación segura con bcrypt
+            passwordOk = await bcrypt.compare(password, storedPassword);
+        } else {
+            // 🧪 Comparación directa si es texto plano
+            passwordOk = password === storedPassword;
+        }
+
+        if (!passwordOk) {
+            return res.status(400).json({ msg: "Credenciales incorrectas" });
+        }
+
+        // 🔄 Si la password era texto plano, la hasheamos y la guardamos automáticamente
+        if (!isHashed) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            user.password = hashedPassword;
+            await user.save(); // Ahora queda actualizada en la DB
+            console.log(`🔐 Contraseña de ${username} fue hasheada automáticamente`);
+        }
+
+        // 🔑 Generamos token
         const token = jwt.sign(
             { id: user.id, role: user.role },
-            process.env.JWT_SECRET,
+            process.env.JWT_SECRET || "default_secret",
             { expiresIn: "7d" }
         );
 
         res.json({ msg: "Login exitoso", token });
     } catch (err) {
+        console.error("❌ Error en login:", err);
         res.status(500).json({ msg: "Error del servidor" });
     }
 };
