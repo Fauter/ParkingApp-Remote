@@ -121,6 +121,15 @@ exports.getAllUsers = async (req, res) => {
       res.status(500).json({ msg: "Error al obtener los usuarios" });
     }
 };
+exports.getAllUsersWithPassword = async (req, res) => {
+    try {
+        const users = await User.find(); // trae también el password hasheado
+        res.json(users);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: "Error al obtener los usuarios con password" });
+    }
+};
 
 exports.getProfile = (req, res) => {
   res.json({

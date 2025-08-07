@@ -3,6 +3,7 @@ const {
     register,
     login, 
     getAllUsers, 
+    getAllUsersWithPassword,
     getUserById,
     getProfile, 
     updateUser,
@@ -18,6 +19,7 @@ router.post('/register', register);
 router.post('/login', login);
 
 router.get('/', getAllUsers);
+router.get('/full', getAllUsersWithPassword);
 router.get('/profile', authMiddleware, getProfile);
 router.get('/:id', getUserById);
 router.put('/:id', updateUser);
