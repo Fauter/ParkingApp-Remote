@@ -78,28 +78,40 @@ exports.login = async (req, res) => {
 
         let passwordOk = false;
 
-        // 🧠 Detectamos si la contraseña almacenada es un hash de bcrypt (empieza con $2a$ o $2b$ o $2y$)
         const isHashed = typeof storedPassword === 'string' && storedPassword.startsWith('$2');
 
         if (isHashed) {
-            // 🔐 Comparación segura con bcrypt
+            // Intentamos bcrypt primero
             passwordOk = await bcrypt.compare(password, storedPassword);
+
+            if (!passwordOk) {
+                console.warn(`⚠️ Hash incorrecto para ${username}. Intentando comparación directa...`);
+
+                // Intentamos texto plano como fallback
+                if (password === storedPassword) {
+                    console.log(`🟡 Login exitoso con password en texto plano para ${username}. Hasheando...`);
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash(password, salt);
+                    user.password = hashedPassword;
+                    await user.save();
+                    passwordOk = true;
+                }
+            }
         } else {
-            // 🧪 Comparación directa si es texto plano
+            // Si no es hash, comparamos directo
             passwordOk = password === storedPassword;
+
+            if (passwordOk) {
+                console.log(`🟡 Password plana detectada para ${username}. Hasheando...`);
+                const salt = await bcrypt.genSalt(10);
+                const hashedPassword = await bcrypt.hash(password, salt);
+                user.password = hashedPassword;
+                await user.save();
+            }
         }
 
         if (!passwordOk) {
             return res.status(400).json({ msg: "Credenciales incorrectas" });
-        }
-
-        // 🔄 Si la password era texto plano, la hasheamos y la guardamos automáticamente
-        if (!isHashed) {
-            const salt = await bcrypt.genSalt(10);
-            const hashedPassword = await bcrypt.hash(password, salt);
-            user.password = hashedPassword;
-            await user.save(); // Ahora queda actualizada en la DB
-            console.log(`🔐 Contraseña de ${username} fue hasheada automáticamente`);
         }
 
         // 🔑 Generamos token
