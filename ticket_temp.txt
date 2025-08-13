@@ -1,0 +1,5 @@
+PARKING APP
+--------------------------
+Probando la XP-58 desde Python usando Bloc de Notas
+
+

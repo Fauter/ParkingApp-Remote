@@ -1,0 +1,35 @@
+{
+  "auto": {
+    "hora": 1000,
+    "media estadía": 4000,
+    "4 horas": 3000,
+    "8 horas": 5000,
+    "semana": 30000,
+    "día": 7000,
+    "5 minutos": 84,
+    "mensual": 100000
+  },
+  "camioneta": {
+    "hora": 1500,
+    "media estadía": 6000,
+    "4 horas": 5000,
+    "8 horas": 9000,
+    "5 minutos": 125,
+    "día": 11000,
+    "semana": 45000,
+    "mensual": 160000
+  },
+  "moto": {
+    "hora": 600,
+    "media estadía": 2400,
+    "5 minutos": 50,
+    "día": 4000,
+    "semana": 15000,
+    "4 horas": 2000,
+    "8 horas": 3500,
+    "mensual": 50000
+  },
+  "bicicleta": {
+    "hora": 400
+  }
+}

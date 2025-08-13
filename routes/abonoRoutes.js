@@ -1,0 +1,41 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');            
+const {
+  getAbonos,
+  getAbonoPorId,
+  registrarAbono,
+  eliminarAbonos,
+  agregarAbono
+} = require('../controllers/abonoControllers');
+
+const router = express.Router();
+
+// Configuración Multer - ahora guarda en uploads/fotos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/fotos/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage });
+
+// Campos de archivos que espera el endpoint
+const uploadFields = upload.fields([
+  { name: 'fotoSeguro', maxCount: 1 },
+  { name: 'fotoDNI', maxCount: 1 },
+  { name: 'fotoCedulaVerde', maxCount: 1 },
+  { name: 'fotoCedulaAzul', maxCount: 1 },
+]);
+
+// Rutas
+router.get('/', getAbonos);
+router.get('/:id', getAbonoPorId);
+router.post('/registrar-abono', uploadFields, registrarAbono);
+router.post('/agregar-abono', uploadFields, agregarAbono);
+router.delete('/', eliminarAbonos);
+
+module.exports = router;
