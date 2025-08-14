@@ -7,6 +7,7 @@ const Ticket = require('../models/Ticket');
 
 const router = express.Router();
 
+// Obtener todos los tickets
 router.get('/', async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ creadoEn: -1 });
@@ -34,6 +35,9 @@ router.post('/barcode', barcodeController.generateBarcode);
 
 // Imprimir ticket
 router.post('/imprimir', (req, res) => {
+  // ❌ IMPORTANTE: NO generar Outbox para esta ruta
+  res.locals.__skipOutbox = true;
+
   let { texto, ticketNumero } = req.body;
 
   // Si viene ticketNumero, usarlo para armar texto solo con número con ceros

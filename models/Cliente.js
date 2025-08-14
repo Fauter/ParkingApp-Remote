@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
+const { Schema } = mongoose;
 
-const clienteSchema = new mongoose.Schema({
-  nombreApellido: { type: String, required: true },
-  dniCuitCuil: { type: String, required: true },
+const clienteSchema = new Schema({
+  nombreApellido: { type: String, index: true },
+  dniCuitCuil: String,
   domicilio: String,
   localidad: String,
   telefonoParticular: String,
@@ -10,18 +11,17 @@ const clienteSchema = new mongoose.Schema({
   domicilioTrabajo: String,
   telefonoTrabajo: String,
   email: String,
-  vehiculos: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Vehiculo' }],
-  abonos: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Abono' }],
-  movimientos: [{ type: mongoose.Schema.Types.ObjectId, ref: 'MovimientoCliente' }],
-  balance: { type: Number, default: 0 },
+
   abonado: { type: Boolean, default: false },
-  precioAbono: { type: String, default: '' },  // <--- NUEVO CAMPO: string, nombre del tipo de vehículo
-  finAbono: {
-    type: Date,
-    validate: function(value) {
-      return !value || this.abonado;
-    }
-  }
+  finAbono: { type: Date, default: null },
+  precioAbono: { type: String, default: '' }, // guarda “auto|camioneta|moto”, como estás usando
+
+  // >>>> ARRAYS REFERENCIADOS <<<<
+  vehiculos: [{ type: Schema.Types.ObjectId, ref: 'Vehiculo' }],
+  abonos:    [{ type: Schema.Types.ObjectId, ref: 'Abono' }],
+  movimientos: [{ type: Schema.Types.ObjectId, ref: 'MovimientoCliente' }],
+
+  balance: { type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Cliente', clienteSchema);

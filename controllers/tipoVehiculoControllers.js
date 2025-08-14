@@ -4,7 +4,7 @@ const TipoVehiculo = require('../models/TipoVehiculo');
 exports.getTiposVehiculo = async (req, res) => {
     try {
         const tipos = await TipoVehiculo.find({}, 'nombre');
-        res.json(tipos.map(t => t.nombre));
+        res.json(tipos.map(t => ({ nombre: t.nombre })));
     } catch (err) {
         console.error('💥 Error al obtener tipos de vehículo:', err);
         res.status(500).json({ msg: 'Error del servidor' });

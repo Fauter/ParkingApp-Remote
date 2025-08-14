@@ -1,8 +1,10 @@
+// controllers/vehiculoControllers.js
 const fs = require("fs");
 const path = require("path");
 const axios = require('axios');
+const mongoose = require('mongoose');
 const Vehiculo = require('../models/Vehiculo');
-const Movimiento = require('../models/Movimiento'); 
+const Movimiento = require('../models/Movimiento');
 const Turno = require('../models/Turno');
 const Tarifa = require('../models/Tarifa');
 const Abono = require('../models/Abono');
@@ -25,9 +27,12 @@ const RUTA_FOTO_TEMPORAL = path.join(__dirname, '../camara/sacarfoto/captura.jpg
 });
 
 function obtenerPrecios() {
-    const filePath = path.join(__dirname, '../data/precios.json');
-    const data = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(data);
+  const filePath = path.join(__dirname, '../data/precios.json');
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 async function obtenerProximoTicket() {
@@ -40,14 +45,12 @@ async function obtenerProximoTicket() {
 }
 
 async function actualizarEstadoTurnoVehiculo(patente) {
-    const turnos = await Turno.find({ patente });
-    const ahora = new Date();
-
-    const tieneTurnoActivo = turnos.some(turno =>
-        turno.expirado === false && new Date(turno.fin) > ahora
-    );
-
-    return tieneTurnoActivo;
+  const turnos = await Turno.find({ patente });
+  const ahora = new Date();
+  const tieneTurnoActivo = turnos.some(turno =>
+    turno.expirado === false && new Date(turno.fin) > ahora
+  );
+  return tieneTurnoActivo;
 }
 
 async function guardarFotoVehiculo(patente, fotoUrl) {
@@ -56,16 +59,13 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
   try {
     const response = await axios.get(fotoUrl, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(response.data, 'binary');
-    
-    // Crear nombre de archivo único
+
     const timestamp = Date.now();
     const nombreArchivo = `${patente}_${timestamp}.jpg`;
     const rutaArchivo = path.join(FOTOS_ENTRADAS_DIR, nombreArchivo);
-    
-    // Guardar el archivo
+
     fs.writeFileSync(rutaArchivo, buffer);
 
-    // Borrar la foto temporal captura.jpg luego de copiarla (si existe)
     if (fs.existsSync(RUTA_FOTO_TEMPORAL)) {
       try {
         fs.unlinkSync(RUTA_FOTO_TEMPORAL);
@@ -76,20 +76,31 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
     } else {
       console.log('Foto temporal captura.jpg no encontrada para eliminar.');
     }
-    
-    // Retornar la ruta pública correcta del archivo guardado
+
     return `/uploads/fotos/entradas/${nombreArchivo}`;
   } catch (err) {
     if (err.response && err.response.status === 404) {
       console.warn(`No se encontró la foto para ${patente} en ${fotoUrl}`);
-      return null; // No hay foto, sigue sin foto
+      return null;
     }
-    // Otros errores los lanzamos para que los capture la función que llama
     throw err;
   }
 }
 
-// Crear Vehículo
+// ---------------- utils operador desde req.user ----------------
+function getOperadorNombre(req) {
+  const u = req.user || {};
+  const nombre = (u.nombre || '').trim();
+  const apellido = (u.apellido || '').trim();
+  const username = (u.username || '').trim();
+  if (nombre || apellido) return `${nombre} ${apellido}`.trim();
+  if (username) return username;
+  return 'Operador Desconocido';
+}
+
+// ---------------- Handlers ----------------
+
+// Crear Vehículo (con entrada)
 exports.createVehiculo = async (req, res) => {
   try {
     const { patente, tipoVehiculo, abonado = false, turno = false, operador, metodoPago, monto, ticket, entrada, fotoUrl } = req.body;
@@ -99,9 +110,7 @@ exports.createVehiculo = async (req, res) => {
       return res.status(400).json({ msg: "Faltan datos" });
     }
 
-    const operadorNombre = operador || usuarioLogueado?.nombre || "Desconocido";
-
-    // Guardar la foto si existe
+    const operadorNombre = getOperadorNombre({ user: usuarioLogueado }) || operador || "Desconocido";
     const rutaFotoGuardada = await guardarFotoVehiculo(patente, fotoUrl);
 
     let vehiculo = await Vehiculo.findOne({ patente });
@@ -117,17 +126,19 @@ exports.createVehiculo = async (req, res) => {
       if (abonado) {
         const precios = obtenerPrecios();
         const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
+
         vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
         const nuevoMovimiento = new Movimiento({
           patente,
-          operador: "Sistema",
+          operador: 'Sistema',
           tipoVehiculo,
-          metodoPago: "Efectivo",
-          factura: "CC",
+          metodoPago: 'Efectivo',
+          factura: 'CC',
           monto: precioAbono,
-          descripcion: "Pago de abono"
+          descripcion: 'Pago por Abono'
         });
+
         await nuevoMovimiento.save();
       }
 
@@ -170,121 +181,122 @@ exports.createVehiculo = async (req, res) => {
     res.status(500).json({ msg: "Error del servidor" });
   }
 };
+
 exports.createVehiculoSinEntrada = async (req, res) => {
-    try {
-        const { patente, tipoVehiculo, abonado, turno } = req.body;
+  try {
+    const { patente, tipoVehiculo, abonado, turno } = req.body;
 
-        if (!patente || !tipoVehiculo) {
-            return res.status(400).json({ msg: "Faltan datos" });
-        }
-
-        let vehiculo = await Vehiculo.findOne({ patente });
-
-        if (!vehiculo) {
-            vehiculo = new Vehiculo({
-                patente,
-                tipoVehiculo,
-                abonado: !!abonado,
-                turno: !!turno
-            });
-
-            if (abonado) {
-                const precios = obtenerPrecios();
-                const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
-
-                vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-                const nuevoMovimiento = new Movimiento({
-                    patente,
-                    operador: "Sistema",
-                    tipoVehiculo,
-                    metodoPago: "Efectivo",
-                    factura: "CC",
-                    monto: precioAbono,
-                    descripcion: "Pago de abono abono"
-                });
-
-                await nuevoMovimiento.save();
-            }
-
-            // NO se registra entrada acá
-            await vehiculo.save();
-
-            return res.status(201).json({ msg: "Vehículo creado sin entrada registrada", vehiculo });
-        }
-
-        return res.status(200).json({ msg: "Vehículo ya existe", vehiculo });
-
-    } catch (err) {
-        console.error("💥 Error en createVehiculoSinEntrada:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+    if (!patente || !tipoVehiculo) {
+      return res.status(400).json({ msg: "Faltan datos" });
     }
+
+    let vehiculo = await Vehiculo.findOne({ patente });
+
+    if (!vehiculo) {
+      vehiculo = new Vehiculo({
+        patente,
+        tipoVehiculo,
+        abonado: !!abonado,
+        turno: !!turno
+      });
+
+      if (abonado) {
+        const precios = obtenerPrecios();
+        const precioAbono = precios[tipoVehiculo.toLowerCase()]?.estadia || 0;
+
+        vehiculo.abonoExpira = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        const nuevoMovimiento = new Movimiento({
+          patente,
+          operador: 'Sistema',
+          tipoVehiculo,
+          metodoPago: 'Efectivo',
+          factura: 'CC',
+          monto: precioAbono,
+          descripcion: 'Pago de Abono'
+        });
+
+        await nuevoMovimiento.save();
+      }
+
+      await vehiculo.save();
+      return res.status(201).json({ msg: "Vehículo creado sin entrada registrada", vehiculo });
+    }
+
+    return res.status(200).json({ msg: "Vehículo ya existe", vehiculo });
+
+  } catch (err) {
+    console.error("💥 Error en createVehiculoSinEntrada:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Obtener todos los vehículos
-exports.getVehiculos = async (req, res) => {
-    try {
-        const vehiculos = await Vehiculo.find();
-        res.json(vehiculos);
-    } catch (err) {
-        res.status(500).json({ msg: "Error del servidor" });
-    }
+exports.getVehiculos = async (_req, res) => {
+  try {
+    const vehiculos = await Vehiculo.find();
+    res.json(vehiculos);
+  } catch (err) {
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Obtener por patente
 exports.getVehiculoByPatente = async (req, res) => {
-    try {
-        const { patente } = req.params;
-        const vehiculo = await Vehiculo.findOne({ patente });
+  try {
+    const { patente } = req.params;
+    const vehiculo = await Vehiculo.findOne({ patente });
 
-        if (!vehiculo) {
-            return res.status(404).json({ msg: "Vehículo no encontrado" });
-        }
-
-        const tieneTurnoActivo = await actualizarEstadoTurnoVehiculo(patente);
-
-        if (vehiculo.turno !== tieneTurnoActivo) {
-            vehiculo.turno = tieneTurnoActivo;
-            await vehiculo.save();
-        }
-
-        res.json(vehiculo);
-    } catch (err) {
-        res.status(500).json({ msg: "Error del servidor" });
+    if (!vehiculo) {
+      return res.status(404).json({ msg: "Vehículo no encontrado" });
     }
+
+    const tieneTurnoActivo = await actualizarEstadoTurnoVehiculo(patente);
+
+    if (vehiculo.turno !== tieneTurnoActivo) {
+      vehiculo.turno = tieneTurnoActivo;
+      await vehiculo.save();
+    }
+
+    res.json(vehiculo);
+  } catch (err) {
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Obtener por ID
 exports.getVehiculoById = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-        if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-            return res.status(400).json({ msg: "ID inválido" });
-        }
-
-        const vehiculo = await Vehiculo.findById(id);
-
-        if (!vehiculo) {
-            return res.status(404).json({ msg: "Vehículo no encontrado." });
-        }
-
-        res.json(vehiculo);
-    } catch (err) {
-        console.error("Error en getVehiculoById:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ msg: "ID inválido" });
     }
+
+    const vehiculo = await Vehiculo.findById(id);
+
+    if (!vehiculo) {
+      return res.status(404).json({ msg: "Vehículo no encontrado." });
+    }
+
+    res.json(vehiculo);
+  } catch (err) {
+    console.error("Error en getVehiculoById:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Tipos de vehículo
-exports.getTiposVehiculo = (req, res) => {
-    try {
-        const tipos = Vehiculo.schema.path('tipoVehiculo').enumValues;
-        res.json(tipos);
-    } catch (err) {
-        console.error("💥 Error al obtener tipos de vehículo:", err);
-        res.status(500).json({ msg: "Error del servidor" });
-    }
+exports.getTiposVehiculo = (_req, res) => {
+  try {
+    const precios = obtenerPrecios();
+    const tipos = Object.keys(precios || {}).map(nombre => ({ nombre }));
+    const out = tipos.length ? tipos : [{ nombre: 'auto' }, { nombre: 'camioneta' }, { nombre: 'moto' }];
+    res.json(out);
+  } catch (err) {
+    console.error("💥 Error al obtener tipos de vehículo:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
 
 // Registrar entrada
@@ -293,10 +305,8 @@ exports.registrarEntrada = async (req, res) => {
     const { patente } = req.params;
     const { operador, metodoPago, monto, ticket, entrada, fotoUrl } = req.body;
 
-    // Guardar la foto si existe
     const rutaFotoGuardada = await guardarFotoVehiculo(patente, fotoUrl);
-
-    let vehiculo = await Vehiculo.findOne({ patente });
+    const vehiculo = await Vehiculo.findOne({ patente });
 
     if (!vehiculo) {
       return res.status(404).json({ msg: "Vehículo no encontrado." });
@@ -311,11 +321,11 @@ exports.registrarEntrada = async (req, res) => {
 
     vehiculo.estadiaActual = {
       entrada: fechaEntrada,
-      operadorNombre: operador || "Desconocido",
+      operadorNombre: getOperadorNombre(req) || operador || "Desconocido",
       metodoPago: metodoPago || null,
       monto: monto || null,
       ticket: ticketNum,
-      fotoUrl: rutaFotoGuardada // Usamos la ruta guardada
+      fotoUrl: rutaFotoGuardada
     };
 
     await vehiculo.save();
@@ -326,71 +336,111 @@ exports.registrarEntrada = async (req, res) => {
     res.status(500).json({ msg: "Error del servidor" });
   }
 };
-// Registrar salida
+
+// Registrar salida (ATÓMICO con Movimiento)
 exports.registrarSalida = async (req, res) => {
-    try {
-        const { patente } = req.params;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { patente } = req.params;
+    const {
+      salida: salidaBody,
+      costo: costoBody,
+      metodoPago: mpBody,
+      factura: facturaBody,
+      tipoTarifa: tipoTarifaBody,
+      descripcion: descripcionBody
+    } = req.body || {};
 
-        const vehiculo = await Vehiculo.findOne({ patente });
-
-        if (!vehiculo) {
-            return res.status(404).json({ msg: "Vehículo no encontrado." });
-        }
-
-        const estadia = vehiculo.estadiaActual;
-
-        if (!estadia || !estadia.entrada || estadia.salida) {
-            return res.status(400).json({ msg: "No hay estadía activa para este vehículo" });
-        }
-
-        estadia.salida = new Date();
-        vehiculo.historialEstadias.push({ ...estadia });
-
-        vehiculo.estadiaActual = {
-            entrada: null,
-            salida: null,
-            costoTotal: null,
-            nombreTarifa: null,
-            tipoTarifa: null
-        };
-
-        await vehiculo.save();
-
-        res.status(200).json({ msg: "Salida registrada y estadía archivada", vehiculo });
-    } catch (err) {
-        console.error("💥 Error en registrarSalida:", err);
-        res.status(500).json({ msg: "Error del servidor" });
+    // Tomo el doc con session (solo para snapshot coherente)
+    const vehiculo = await Vehiculo.findOne({ patente }).session(session);
+    if (!vehiculo) throw new Error("Vehículo no encontrado");
+    if (!vehiculo.estadiaActual || !vehiculo.estadiaActual.entrada || vehiculo.estadiaActual.salida) {
+      throw new Error("No hay estadía activa para este vehículo");
     }
+
+    // Snapshot de la estadía actual + salida y costo final
+    const salida = salidaBody ? new Date(salidaBody) : new Date();
+    const estadiaSnapshot = JSON.parse(JSON.stringify(vehiculo.estadiaActual));
+    estadiaSnapshot.salida = salida;
+
+    const costoFinal = (typeof costoBody === 'number' && !Number.isNaN(costoBody))
+      ? costoBody
+      : (typeof estadiaSnapshot.costoTotal === 'number' ? estadiaSnapshot.costoTotal : 0);
+
+    estadiaSnapshot.costoTotal = Number(costoFinal) || 0;
+
+    // ATÓMICO: push al historial y UNSET de estadiaActual en la MISMA operación
+    await Vehiculo.updateOne(
+      { _id: vehiculo._id },
+      {
+        $push: { historialEstadias: estadiaSnapshot },
+        $unset: { estadiaActual: "" },
+        $set: { updatedAt: new Date() }
+      },
+      { session }
+    );
+
+    // Movimiento consistente con el snapshot
+    const operadorNombre = getOperadorNombre(req);
+    const metodoPago = mpBody || estadiaSnapshot.metodoPago || 'Efectivo';
+    const factura = facturaBody || 'Final';
+    const tipoTarifa = tipoTarifaBody || estadiaSnapshot.tipoTarifa || 'estadia';
+    const descripcion = descripcionBody || `Salida ${patente} — ${tipoTarifa}`;
+
+    const movimientoDoc = {
+      patente,
+      operador: operadorNombre,
+      tipoVehiculo: vehiculo.tipoVehiculo || 'auto',
+      metodoPago,
+      factura,
+      monto: Number(costoFinal) || 0,
+      descripcion,
+      tipoTarifa,
+      ticket: estadiaSnapshot.ticket
+    };
+    await Movimiento.create([movimientoDoc], { session });
+
+    await session.commitTransaction();
+
+    // devolver el vehículo ya limpio
+    const vehiculoActualizado = await Vehiculo.findOne({ _id: vehiculo._id }).lean();
+    return res.json({
+      msg: "Salida registrada",
+      estadia: estadiaSnapshot,
+      movimiento: movimientoDoc,
+      vehiculo: vehiculoActualizado
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    console.error("💥 Error en registrarSalida:", err);
+    res.status(500).json({ msg: err.message || "Error del servidor" });
+  } finally {
+    session.endSession();
+  }
 };
 
 // Asignar abono
 exports.asignarAbonoAVehiculo = async (req, res) => {
-    const { patente } = req.params;
-    const { abonoId } = req.body;
+  const { patente } = req.params;
+  const { abonoId } = req.body;
 
-    try {
-        const vehiculo = await Vehiculo.findOne({ patente });
+  try {
+    const vehiculo = await Vehiculo.findOne({ patente });
+    if (!vehiculo) return res.status(404).json({ message: "Vehículo no encontrado." });
 
-        if (!vehiculo) {
-            return res.status(404).json({ message: "Vehículo no encontrado." });
-        }
+    const abono = await Abono.findById(abonoId);
+    if (!abono) return res.status(404).json({ message: "Abono no encontrado" });
 
-        const abono = await Abono.findById(abonoId);
+    vehiculo.abonado = true;
+    vehiculo.abono = abono._id;
+    await vehiculo.save();
 
-        if (!abono) {
-            return res.status(404).json({ message: "Abono no encontrado" });
-        }
-
-        vehiculo.abonado = true;
-        vehiculo.abono = abono._id;
-
-        await vehiculo.save();
-
-        return res.status(200).json({ message: "Vehículo actualizado con éxito", vehiculo });
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ message: "Error al actualizar el vehículo" });
-    }
+    return res.status(200).json({ message: "Vehículo actualizado con éxito", vehiculo });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Error al actualizar el vehículo" });
+  }
 };
 
 // Buscar vehículo por número de ticket
@@ -403,10 +453,7 @@ exports.getVehiculoByTicket = async (req, res) => {
       return res.status(400).json({ msg: "Número de ticket inválido" });
     }
 
-    const vehiculo = await Vehiculo.findOne({ 
-      "estadiaActual.ticket": ticketNum 
-    });
-
+    const vehiculo = await Vehiculo.findOne({ "estadiaActual.ticket": ticketNum });
     if (!vehiculo) {
       return res.status(404).json({ msg: "Vehículo no encontrado para este ticket" });
     }
@@ -417,6 +464,7 @@ exports.getVehiculoByTicket = async (req, res) => {
     res.status(500).json({ msg: "Error del servidor" });
   }
 };
+
 exports.getVehiculoByTicketAdmin = async (req, res) => {
   try {
     const { ticket } = req.params;
@@ -426,32 +474,19 @@ exports.getVehiculoByTicketAdmin = async (req, res) => {
       return res.status(400).json({ msg: "Número de ticket inválido" });
     }
 
-    // Buscar vehículo con estadiaActual.ticket igual al ticket
     let vehiculo = await Vehiculo.findOne({ "estadiaActual.ticket": ticketNum }).select('-__v');
 
     if (vehiculo) {
-      // Encontró en estadiaActual
       const estadia = vehiculo.estadiaActual;
-
-      // Agregar ticket formateado para comodidad
       estadia.ticketFormateado = String(estadia.ticket).padStart(10, '0');
-
       return res.json({ vehiculo, estadia });
     }
 
-    // Si no encontró, buscar en historialEstadias
     vehiculo = await Vehiculo.findOne({ "historialEstadias.ticket": ticketNum }).select('-__v');
+    if (!vehiculo) return res.status(404).json({ msg: "Vehículo no encontrado para este ticket" });
 
-    if (!vehiculo) {
-      return res.status(404).json({ msg: "Vehículo no encontrado para este ticket" });
-    }
-
-    // Buscar la estadía en historialEstadias con el ticket buscado
     const estadia = vehiculo.historialEstadias.find(e => String(e.ticket) === String(ticketNum));
-
-    if (!estadia) {
-      return res.status(404).json({ msg: "Estadía no encontrada para este ticket en el historial" });
-    }
+    if (!estadia) return res.status(404).json({ msg: "Estadía no encontrada para este ticket en el historial" });
 
     estadia.ticketFormateado = String(estadia.ticket).padStart(10, '0');
 
@@ -463,15 +498,14 @@ exports.getVehiculoByTicketAdmin = async (req, res) => {
 };
 
 // Eliminar todos los vehículos
-exports.eliminarTodosLosVehiculos = async (req, res) => {
-    try {
-        console.log("Eliminando todos los vehículos...");
-        await Vehiculo.deleteMany({});
-        console.log("Todos los vehículos fueron eliminados.");
-        res.json({ msg: "Todos los vehículos fueron eliminados correctamente." });
-    } catch (err) {
-        console.error("💥 Error al eliminar los vehículos:", err);
-        res.status(500).json({ msg: "Error del servidor" });
-    }
+exports.eliminarTodosLosVehiculos = async (_req, res) => {
+  try {
+    console.log("Eliminando todos los vehículos...");
+    await Vehiculo.deleteMany({});
+    console.log("Todos los vehículos fueron eliminados.");
+    res.json({ msg: "Todos los vehículos fueron eliminados correctamente." });
+  } catch (err) {
+    console.error("💥 Error al eliminar los vehículos:", err);
+    res.status(500).json({ msg: "Error del servidor" });
+  }
 };
-

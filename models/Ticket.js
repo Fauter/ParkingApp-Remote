@@ -1,4 +1,3 @@
-// models/Ticket.js
 const mongoose = require('mongoose');
 
 const TicketSchema = new mongoose.Schema({
@@ -7,11 +6,7 @@ const TicketSchema = new mongoose.Schema({
   patente: { type: String, default: null },
   tipoVehiculo: { type: String, default: null },
   operadorNombre: { type: String, default: null },
-  estado: { 
-    type: String, 
-    enum: ['pendiente', 'asociado', 'anulado'], 
-    default: 'pendiente' 
-  },
+  estado: { type: String, enum: ['pendiente','asociado','anulado'], default: 'pendiente' },
   fotoUrl: { type: String, default: null }
 }, { timestamps: true });
 

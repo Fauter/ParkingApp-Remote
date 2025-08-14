@@ -1,5 +1,6 @@
 const Ticket = require('../models/Ticket');
 const Counter = require('../models/Counter');
+
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -10,45 +11,25 @@ const FOTOS_ENTRADAS_DIR = path.join(FOTOS_DIR, 'entradas');
 const FOTOS_TICKETS_DIR = path.join(FOTOS_DIR, 'tickets');
 
 // Crear directorios si no existen
-try {
-  if (!fs.existsSync(FOTOS_DIR)) {
-    fs.mkdirSync(FOTOS_DIR, { recursive: true });
+[FOTOS_DIR, FOTOS_ENTRADAS_DIR, FOTOS_TICKETS_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
-  if (!fs.existsSync(FOTOS_ENTRADAS_DIR)) {
-    fs.mkdirSync(FOTOS_ENTRADAS_DIR, { recursive: true });
-  }
-} catch (err) {
-  console.error('Error al crear directorios:', err);
-  process.exit(1);
-}
+});
 
-async function obtenerProximoTicket() {
-  const resultado = await Counter.findOneAndUpdate(
-    { name: 'ticket' },
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true }
-  );
-  return resultado.seq;
-}
-
+// Función para guardar foto
 async function guardarFotoTicket(ticketId, fotoUrl) {
-  if (!fotoUrl || !fotoUrl.includes('captura.jpg')) {
-    return null;
-  }
+  if (!fotoUrl || !fotoUrl.includes('captura.jpg')) return null;
 
   try {
-    // Verificar primero si la foto existe
     const headResponse = await axios.head(fotoUrl);
-    if (headResponse.status !== 200) {
-      return null; // Si no existe, retornar null sin error
-    }
+    if (headResponse.status !== 200) return null;
 
-    // Si existe, proceder a descargarla
     const response = await axios.get(fotoUrl, { 
       responseType: 'arraybuffer',
-      validateStatus: status => status === 200 // Solo considerar 200 como éxito
+      validateStatus: status => status === 200
     });
-    
+
     const buffer = Buffer.from(response.data, 'binary');
     const nombreArchivo = `ticket_${ticketId}.jpg`;
     const rutaArchivo = path.join(FOTOS_ENTRADAS_DIR, nombreArchivo);
@@ -56,45 +37,53 @@ async function guardarFotoTicket(ticketId, fotoUrl) {
     fs.writeFileSync(rutaArchivo, buffer);
     return `/uploads/fotos/entradas/${nombreArchivo}`;
   } catch (error) {
-    if (error.response && error.response.status === 404) {
-      return null; // Foto no encontrada, no es un error crítico
-    }
-    console.error('Error al guardar la foto del ticket:', error.message); // Solo mensaje del error
+    if (error.response && error.response.status === 404) return null;
+    console.error('Error al guardar la foto del ticket:', error.message);
     return null;
   }
 }
 
+// Crear ticket
 exports.crearTicket = async (req, res) => {
   try {
-    const ticketNumero = await obtenerProximoTicket();
-    const ahora = new Date();
-    
+    // 🔹 Obtener un número de ticket único usando Counter
+    let nuevoNumero = await Counter.increment('ticket');
+
+    // 🔒 Verificación extra por si existiera duplicado (muy improbable)
+    while (await Ticket.exists({ ticket: nuevoNumero })) {
+      console.warn(`⚠️ Ticket ${nuevoNumero} ya existe, avanzando al siguiente`);
+      nuevoNumero = await Counter.increment('ticket');
+    }
+
     const nuevoTicket = new Ticket({
-      ticket: ticketNumero,
-      creadoEn: ahora,
+      ticket: nuevoNumero,
       estado: 'pendiente'
     });
 
     await nuevoTicket.save();
-    
+
     res.status(201).json({
       msg: 'Ticket creado',
       ticket: {
         ...nuevoTicket.toObject(),
-        ticketFormateado: String(ticketNumero).padStart(10, '0')
+        ticketFormateado: String(nuevoTicket.ticket).padStart(10, '0')
       }
     });
+
   } catch (err) {
-    console.error('Error al crear ticket:', err);
-    res.status(500).json({ msg: 'Error del servidor' });
+    console.error('❌ Error al crear ticket:', err);
+    res.status(500).json({ 
+      msg: 'Error del servidor', 
+      error: err.message 
+    });
   }
 };
 
+// Obtener último ticket pendiente
 exports.obtenerUltimoTicketPendiente = async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ estado: 'pendiente' })
-                              .sort({ creadoEn: -1 });
-    
+    const ticket = await Ticket.findOne({ estado: 'pendiente' }).sort({ creadoEn: -1 });
+
     if (!ticket) {
       return res.status(404).json({ msg: 'No hay tickets pendientes' });
     }
@@ -109,12 +98,12 @@ exports.obtenerUltimoTicketPendiente = async (req, res) => {
   }
 };
 
+// Asociar ticket a vehículo
 exports.asociarTicketAVehiculo = async (req, res) => {
   try {
     const { id } = req.params;
     const { patente, tipoVehiculo, operadorNombre, fotoUrl } = req.body;
-    
-    // Guardar la foto si existe
+
     const rutaFotoGuardada = await guardarFotoTicket(id, fotoUrl);
 
     const ticket = await Ticket.findByIdAndUpdate(
@@ -128,11 +117,9 @@ exports.asociarTicketAVehiculo = async (req, res) => {
       },
       { new: true }
     );
-    
-    if (!ticket) {
-      return res.status(404).json({ msg: 'Ticket no encontrado' });
-    }
-    
+
+    if (!ticket) return res.status(404).json({ msg: 'Ticket no encontrado' });
+
     res.json({ 
       msg: 'Ticket asociado correctamente',
       ticket: {
@@ -146,47 +133,21 @@ exports.asociarTicketAVehiculo = async (req, res) => {
   }
 };
 
-// Buscar vehículo por número de ticket
-exports.getVehiculoByTicket = async (req, res) => {
-  try {
-    const { ticket } = req.params;
-    const ticketNum = parseInt(ticket);
-
-    if (isNaN(ticketNum)) {
-      return res.status(400).json({ msg: "Número de ticket inválido" });
-    }
-
-    const vehiculo = await Vehiculo.findOne({ 
-      "estadiaActual.ticket": ticketNum 
-    });
-
-    if (!vehiculo) {
-      return res.status(404).json({ msg: "Vehículo no encontrado para este ticket" });
-    }
-
-    res.json(vehiculo);
-  } catch (err) {
-    console.error("Error en getVehiculoByTicket:", err);
-    res.status(500).json({ msg: "Error del servidor" });
-  }
-};
-
+// Actualizar foto del ticket
 exports.actualizarFotoTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
     const { fotoUrl } = req.body;
-    
+
     const ticket = await Ticket.findByIdAndUpdate(
       ticketId,
       { fotoUrl },
       { new: true }
     );
-    
-    if (!ticket) {
-      return res.status(404).json({ msg: 'Ticket no encontrado' });
-    }
-    
-    res.json({ 
+
+    if (!ticket) return res.status(404).json({ msg: 'Ticket no encontrado' });
+
+    res.json({
       msg: 'Foto actualizada correctamente',
       ticket: {
         ...ticket.toObject(),
