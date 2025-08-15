@@ -89,13 +89,18 @@ app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 // =====================
 // 📂 UPLOADS (estáticos) — una sola vez acá
 // =====================
-const baseUploads = process.env.UPLOADS_BASE || path.join(__dirname, 'uploads');
+// Todo esto va a rutas ESCRIBIBLES. Electron main nos pasa UPLOADS_BASE y CAMARA_DIR.
+const baseUploads = process.env.UPLOADS_BASE || path.join(process.cwd(), 'uploads');
 const uploadsDir = path.resolve(baseUploads);
 const fotosDir = path.join(uploadsDir, 'fotos');
 const entradasDir = path.join(fotosDir, 'entradas');
 const auditoriasDir = path.join(uploadsDir, 'auditorias');
 
-[uploadsDir, fotosDir, entradasDir, auditoriasDir].forEach(dir => {
+// Cámara (sacarfoto) fuera del asar:
+const camaraBaseDir = process.env.CAMARA_DIR || path.join(uploadsDir, 'camara');
+const sacarfotoDir = path.join(camaraBaseDir, 'sacarfoto');
+
+[uploadsDir, fotosDir, entradasDir, auditoriasDir, camaraBaseDir, sacarfotoDir].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -125,6 +130,15 @@ app.use('/uploads/auditorias', express.static(auditoriasDir, {
   }
 }));
 
+// ⬅️ IMPORTANTÍSIMO: servir /camara/sacarfoto desde carpeta ESCRIBIBLE
+app.use('/camara/sacarfoto', express.static(sacarfotoDir, {
+  index: false,
+  dotfiles: 'deny',
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  }
+}));
+
 // Health/status liviano del server (no del sync)
 let syncStatus = { lastRun: null, lastError: null, online: false, pendingOutbox: 0, lastPullCounts: {} };
 
@@ -143,7 +157,7 @@ async function sincronizarCounters() {
       { $group: { _id: null, max: { $max: '$t' } } }
     ]).toArray();
     if (localAgg[0] && Number.isFinite(localAgg[0].max)) localMax = localAgg[0].max;
-  } catch (e) {
+  } catch {
     const localMaxDoc = await Ticket.findOne().sort({ ticket: -1 }).select('ticket').lean();
     localMax = (localMaxDoc && typeof localMaxDoc.ticket === 'number' && !isNaN(localMaxDoc.ticket))
       ? localMaxDoc.ticket : 0;
@@ -154,10 +168,10 @@ async function sincronizarCounters() {
   const remoteDbName = process.env.MONGO_DBNAME_REMOTE || process.env.MONGO_DBNAME || 'parking';
 
   let remoteMax = 0;
-  let client = null;
   if (atlasUri) {
+    let client = null;
     try {
-      client = new MongoClient(atlasUri, { serverSelectionTimeoutMS: 2500 });
+      client = new (require('mongodb').MongoClient)(atlasUri, { serverSelectionTimeoutMS: 2500 });
       await client.connect();
       const remoteAgg = await client.db(remoteDbName).collection('tickets').aggregate([
         { $project: { t: { $convert: { input: '$ticket', to: 'double', onError: 0, onNull: 0 } } } },
@@ -171,9 +185,8 @@ async function sincronizarCounters() {
     }
   }
 
-  const maxNumero = Math.max(localMax, remoteMax);
-  const CounterModel = Counter; // evita shadowing
-  const seqActual = await CounterModel.ensureAtLeast('ticket', maxNumero);
+  const maxNumero = Math.max(localMax, remoteMax || 0);
+  const seqActual = await Counter.ensureAtLeast('ticket', maxNumero);
   console.log(`✅ Counter 'ticket' sincronizado. seq actual: ${seqActual} (>= ${maxNumero})`);
 }
 
@@ -193,7 +206,7 @@ app.get('/api/status', (_req, res) => {
  */
 app.delete('/api/vehiculos/eliminar-foto-temporal', (_req, res) => {
   try {
-    const fotoPath = path.join(__dirname, 'camara', 'sacarfoto', 'captura.jpg');
+    const fotoPath = path.join(sacarfotoDir, 'captura.jpg');
     if (fs.existsSync(fotoPath)) {
       fs.unlinkSync(fotoPath);
       return res.json({ msg: "Foto temporal eliminada" });
@@ -306,7 +319,8 @@ async function main() {
     app.use('/api/alertas',            normalizeRouter(alertaRoutes));
     app.use('/api/auditorias',         normalizeRouter(auditoriaRoutes));
     app.use('/api/camara',             normalizeRouter(camaraRoutes));
-    app.use('/camara/sacarfoto',       express.static(path.join(__dirname, 'camara', 'sacarfoto'), { index: false, dotfiles: 'deny' }));
+    // ⬇️ esta ruta ya está montada arriba con 'sacarfotoDir'; la dejo por compat pero no sirve archivos:
+    // app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'sacarfoto'), { index: false, dotfiles: 'deny' }));
     app.use('/api/fotos',              normalizeRouter(fotoRoutes));
     app.use('/api/tickets',            normalizeRouter(ticketRoutes));
     app.use('/api/ticket',             normalizeRouter(ticketRoutes));
@@ -314,19 +328,25 @@ async function main() {
     app.use('/api/impresoras',         normalizeRouter(impresoraRoutes));
     app.use('/api/config',             normalizeRouter(configRoutes));
 
-    // Front estático (producción)
-    if (process.env.NODE_ENV === 'production') {
-      const clientPath = path.join(__dirname, '../../admin.garageia.com/public_html');
-      if (fs.existsSync(clientPath)) {
+    // =====================
+    // Front estático (producción para Electron)
+    // =====================
+    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      // En el paquete, front-end/dist queda como hermano de back-end
+      const clientPath = path.join(__dirname, '..', 'front-end', 'dist');
+      const indexPath = path.join(clientPath, 'index.html');
+
+      if (fs.existsSync(indexPath)) {
+        console.log(`[server] Sirviendo front desde: ${clientPath}`);
         app.use(express.static(clientPath, { index: false }));
         app.get('*', (req, res) => {
           if (req.originalUrl.startsWith('/api/')) {
             return res.status(404).json({ error: 'API route not found' });
           }
-          const indexPath = path.join(clientPath, 'index.html');
-          if (!fs.existsSync(indexPath)) return res.status(404).send('Archivo no encontrado');
           res.sendFile(indexPath);
         });
+      } else {
+        console.warn('[server] front-end/dist no encontrado. Solo API disponible.');
       }
     }
 
