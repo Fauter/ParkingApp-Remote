@@ -521,17 +521,64 @@ async function processOutboxItem(remoteDb, item) {
 
 // --------------------- PULL (desde remoto a local) ---------------------
 
-async function upsertLocalDocWithConflictResolution(localCollection, collName, remoteDoc, stats) {
+async function upsertLocalDocWithConflictResolution(localCollection, collName, remoteDoc, stats, options = {}) {
+  const { mirrorArrays = false } = options; // ← decide si espejar arrays (no recomendado por default)
   const cleaned = normalizeIds(remoteDoc, collName);
   cleaned._id = safeObjectId(cleaned._id);
   const _id = cleaned._id;
+
+  // Campos “array relacionales” a tratar con guantes
+  const REL_ARRAYS_BY_COLL = {
+    clientes: ['abonos','vehiculos','movimientos'],
+    // Podrías sumar otros si usás arrays de refs en otras colecciones
+  };
+  const relArrays = new Set(REL_ARRAYS_BY_COLL[collName?.toLowerCase()] || []);
+
+  // Separá payload en: scalars/$set vs arrays relacionales
   const rest = deepClone(cleaned);
   delete rest._id;
 
-  // ✅ PULL con $unset de campos “ausentes” que nos importan
-  const updateOps = { $set: rest };
-  const $unset = {};
+  const addToSet = {};   // { campo: { $each: [...] } }
+  const pullOps  = {};   // { campo: { $nin: [...] } } (cuando mirrorArrays = true)
+  const setOps   = {};   // $set para scalars y, si hay mirrorArrays, arrays exactos
+  const unsetOps = {};   // $unset (reglas puntuales)
 
+  // 1) Tratamiento especial de arrays relacionales
+  for (const field of Object.keys(rest)) {
+    if (!relArrays.has(field)) continue;
+    const val = rest[field];
+
+    // Nunca setees null/undefined sobre arrays relacionales
+    if (val == null) { delete rest[field]; continue; }
+
+    // Si no es array, descartalo; si es array, casteá ids
+    if (!Array.isArray(val)) { delete rest[field]; continue; }
+    const arr = val.map(safeObjectId).filter(Boolean);
+
+    // Política:
+    // - mirrorArrays = false → sólo agrego (no borro). Si llega [], NO toco.
+    // - mirrorArrays = true  → si llega con elems, seteo exacto y además hago $pull de los que sobren.
+    if (mirrorArrays) {
+      if (arr.length > 0) {
+        setOps[field] = arr;               // espejo exacto (cuando hay elems)
+        pullOps[field] = { $nin: arr };    // saco extras
+      } else {
+        // NO setear [] para evitar wipes por carreras → no tocar el campo
+      }
+    } else {
+      if (arr.length > 0) {
+        addToSet[field] = { $each: arr };  // sólo agrego
+      } else {
+        // arr vacío → no tocar
+      }
+    }
+    delete rest[field]; // lo saco de $set general para no sobreescribir
+  }
+
+  // 2) $set del resto (scalars/objetos NO relacionales)
+  Object.assign(setOps, removeNulls(rest));
+
+  // 3) Regla de negocio para vehiculos.estadiaActual: si no viene o viene {}, unsets
   if (collName.toLowerCase() === 'vehiculos') {
     const hasEstadia = Object.prototype.hasOwnProperty.call(cleaned, 'estadiaActual');
     const isEmptyObj =
@@ -542,19 +589,34 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
       Object.keys(cleaned.estadiaActual).length === 0;
 
     if (!hasEstadia || isEmptyObj) {
-      $unset.estadiaActual = "";
-      if (isEmptyObj && updateOps.$set && Object.prototype.hasOwnProperty.call(updateOps.$set, 'estadiaActual')) {
-        delete updateOps.$set.estadiaActual; // no dejar {} local
+      unsetOps.estadiaActual = "";
+      if (hasEstadia && setOps && Object.prototype.hasOwnProperty.call(setOps, 'estadiaActual')) {
+        delete setOps.estadiaActual; // no dejar {}
       }
     }
   }
 
-  if (Object.keys($unset).length) updateOps.$unset = $unset;
+  // 4) Construyo update
+  const updateOps = {};
+  if (Object.keys(setOps).length)     updateOps.$set     = setOps;
+  if (Object.keys(addToSet).length)   updateOps.$addToSet = addToSet;
+  if (Object.keys(unsetOps).length)   updateOps.$unset   = unsetOps;
+  if (mirrorArrays) {
+    // Para los pulls de arrays espejados: sólo tiene efecto si el campo existe
+    for (const k of Object.keys(pullOps)) {
+      // usamos $pull con $nin, pero sólo si también hacemos $set del campo en este update
+      // (evita hacer pull sin que exista aún el campo)
+      if (updateOps.$set && Object.prototype.hasOwnProperty.call(updateOps.$set, k)) {
+        updateOps.$pull = Object.assign(updateOps.$pull || {}, { [k]: pullOps[k] });
+      }
+    }
+  }
 
   try {
-    await localCollection.updateOne({ _id }, updateOps, { upsert: true });
+    await localCollection.updateOne({ _id }, Object.keys(updateOps).length ? updateOps : { $set: {} }, { upsert: true });
     return true;
   } catch (err) {
+    // Conflictos UNIQUE → misma lógica que ya tenías
     const code = err && (err.code || (err.errorResponse && err.errorResponse.code));
     if (code !== 11000) throw err;
 
@@ -590,7 +652,7 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
       }
     }
 
-    await localCollection.updateOne({ _id }, updateOps, { upsert: true });
+    await localCollection.updateOne({ _id }, Object.keys(updateOps).length ? updateOps : { $set: {} }, { upsert: true });
     if (stats) stats.conflictsResolved = (stats.conflictsResolved || 0) + 1;
     return true;
   }
@@ -641,8 +703,17 @@ async function pullCollectionsFromRemote(remoteDb, requestedCollections = [], op
 
       const localCollection = local.collection(coll);
 
+      // ¿Esta colección corre en modo espejo?
+      const mirrorArraysForThis = !!(mirrorAll || mirrorSet.has(coll));
+
       for (const raw of remoteDocs) {
-        await upsertLocalDocWithConflictResolution(localCollection, coll, raw, stats);
+        await upsertLocalDocWithConflictResolution(
+          localCollection,
+          coll,
+          raw,
+          stats,
+          { mirrorArrays: mirrorArraysForThis }  // ← clave: pasar el flag
+        );
         stats.upsertedOrUpdated++;
       }
 
