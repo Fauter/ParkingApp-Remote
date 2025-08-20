@@ -7,42 +7,48 @@ const authMiddleware = require('../middlewares/authMiddleware2');
 
 const crearTurno = async (req, res) => {
   try {
+    const { patente, metodoPago, factura, duracionHoras, fin, nombreTarifa, tipoVehiculo: tipoVehiculoBody } = req.body;
 
-    const { patente, metodoPago, factura, duracionHoras, fin, nombreTarifa } = req.body;
-
-    if (!patente) console.log('Falta patente');
-    if (!metodoPago) console.log('Falta metodoPago');
-    if (!fin) console.log('Falta fin');
-    if (!duracionHoras) console.log('Falta duracionHoras');
-    if (!nombreTarifa) console.log('Falta nombreTarifa');
     if (!patente || !metodoPago || !fin || !duracionHoras || !nombreTarifa) {
       return res.status(400).json({ error: 'Faltan campos requeridos' });
     }
 
-    // Obtener vehículo desde API externa
-    const responseVehiculo = await axios.get(`http://localhost:5000/api/vehiculos/${patente}`);
-    const vehiculo = responseVehiculo.data;
-    const tipoVehiculo = vehiculo.tipoVehiculo;
-
+    // Obtener vehículo desde API externa (si no vino en body)
+    let tipoVehiculo = tipoVehiculoBody; // puede venir en minúscula desde el front
+    if (!tipoVehiculo) {
+      const responseVehiculo = await axios.get(`http://localhost:5000/api/vehiculos/${patente}`);
+      const vehiculo = responseVehiculo.data;
+      tipoVehiculo = vehiculo?.tipoVehiculo;
+    }
     if (!tipoVehiculo) {
       return res.status(400).json({ error: 'El vehículo no tiene tipoVehiculo definido' });
     }
 
+    // 🔻 Normalizar claves para buscar en la tabla de precios
+    const tipoKey = (tipoVehiculo || '').toLowerCase().trim();
+    const tarifaKey = (nombreTarifa || '').toLowerCase().trim();
+
     // Obtener precios desde API externa
     const { data: precios } = await axios.get('http://localhost:5000/api/precios');
 
-    // Buscar el precio según tipoVehiculo y nombreTarifa (minúsculas)
-    const tarifaKey = nombreTarifa.toLowerCase().trim();
+    // Intento directo por minúscula; fallback por etiqueta original
+    const preciosPorTipo = precios[tipoKey] || precios[tipoVehiculo] || null;
+    const precio = preciosPorTipo ? preciosPorTipo[tarifaKey] : undefined;
 
-    const precio = precios[tipoVehiculo]?.[tarifaKey];
     if (precio === undefined) {
-      return res.status(400).json({ error: `Precio no encontrado para tipoVehiculo="${tipoVehiculo}" y tarifa="${nombreTarifa}"` });
+      const disponiblesTipo = preciosPorTipo ? Object.keys(preciosPorTipo).join(', ') : '(sin tarifas para ese tipo)';
+      return res.status(400).json({
+        error: `Precio no encontrado para tipoVehiculo="${tipoVehiculo}" y tarifa="${nombreTarifa}"`,
+        detalle: {
+          tipoUsadoParaBuscar: tipoKey,
+          tarifasDisponiblesParaTipo: disponiblesTipo
+        }
+      });
     }
 
-    // Crear y guardar el turno
     const nuevoTurno = new Turno({
       patente,
-      tipoVehiculo,
+      tipoVehiculo: tipoKey, // guarda normalizado
       duracionHoras,
       precio,
       metodoPago,
@@ -53,8 +59,7 @@ const crearTurno = async (req, res) => {
 
     await nuevoTurno.save();
 
-    // NO CREAR MOVIMIENTO
-
+    // NO CREAR MOVIMIENTO acá
     res.status(201).json(nuevoTurno);
 
   } catch (error) {

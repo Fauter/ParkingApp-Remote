@@ -94,13 +94,27 @@ function verifyToken(token) {
 
 // ---------- Middleware: requireAuth ----------
 exports.requireAuth = async (req, res, next) => {
+  // ⚠️ MODO PERMISSIVE: NO devuelve 401 si falta o es inválido el token.
   try {
     const hdr = req.headers['authorization'] || '';
     const m = /^Bearer\s+(.+)$/.exec(hdr);
-    if (!m) return res.status(401).json({ msg: 'Token faltante' });
 
-    const decoded = verifyToken(m[1]);
-    // intentamos reconstruir usuario desde token (rápido)…
+    if (!m) {
+      // sin token -> seguimos como invitado
+      req.user = null; // o { role: 'public' }
+      return next();
+    }
+
+    let decoded;
+    try {
+      decoded = verifyToken(m[1]);
+    } catch {
+      // token inválido -> seguimos como invitado
+      req.user = null; // o { role: 'public' }
+      return next();
+    }
+
+    // reconstruimos user "rápido" desde el token
     let user = {
       _id: decoded.id || decoded._id,
       username: decoded.username,
@@ -109,7 +123,7 @@ exports.requireAuth = async (req, res, next) => {
       role: decoded.role
     };
 
-    // …y refrescamos datos básicos desde DB si el id es válido (consistencia)
+    // refresco best-effort desde DB si el id parece válido
     const idStr = idToString(user._id);
     if (is24Hex(idStr)) {
       const fromDb = await User.findById(idStr)
@@ -129,7 +143,9 @@ exports.requireAuth = async (req, res, next) => {
     req.user = user;
     next();
   } catch (e) {
-    return res.status(401).json({ msg: 'Token inválido' });
+    // ante cualquier problema inesperado -> NO 401
+    req.user = null;
+    next();
   }
 };
 
