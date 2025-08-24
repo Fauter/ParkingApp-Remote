@@ -88,14 +88,15 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
 }
 
 // ---------------- utils operador desde req.user ----------------
+// IMPORTANTE: si no hay datos válidos, devolver NULL (no string)
 function getOperadorNombre(req) {
-  const u = req.user || {};
+  const u = (req && req.user) ? req.user : {};
   const nombre = (u.nombre || '').trim();
   const apellido = (u.apellido || '').trim();
   const username = (u.username || '').trim();
   if (nombre || apellido) return `${nombre} ${apellido}`.trim();
   if (username) return username;
-  return 'Operador Desconocido';
+  return null; // <-- clave: no devolvemos "Operador Desconocido" aquí
 }
 
 // ---------------- Handlers ----------------
@@ -104,13 +105,17 @@ function getOperadorNombre(req) {
 exports.createVehiculo = async (req, res) => {
   try {
     const { patente, tipoVehiculo, abonado = false, turno = false, operador, metodoPago, monto, ticket, entrada, fotoUrl } = req.body;
-    const usuarioLogueado = req.user;
 
     if (!patente || !tipoVehiculo) {
       return res.status(400).json({ msg: "Faltan datos" });
     }
 
-    const operadorNombre = getOperadorNombre({ user: usuarioLogueado }) || operador || "Desconocido";
+    // Prioridad: operador (body) -> req.user -> fallback final
+    const operadorNombre =
+      (typeof operador === 'string' && operador.trim()) ||
+      getOperadorNombre(req) ||
+      'Operador Desconocido';
+
     const rutaFotoGuardada = await guardarFotoVehiculo(patente, fotoUrl);
 
     let vehiculo = await Vehiculo.findOne({ patente });
@@ -319,9 +324,15 @@ exports.registrarEntrada = async (req, res) => {
     const ticketNum = ticket || await obtenerProximoTicket();
     const fechaEntrada = entrada ? new Date(entrada) : new Date();
 
+    // Prioridad: operador (body) -> req.user -> fallback
+    const operadorNombre =
+      (typeof operador === 'string' && operador.trim()) ||
+      getOperadorNombre(req) ||
+      'Operador Desconocido';
+
     vehiculo.estadiaActual = {
       entrada: fechaEntrada,
-      operadorNombre: getOperadorNombre(req) || operador || "Desconocido",
+      operadorNombre,
       metodoPago: metodoPago || null,
       monto: monto || null,
       ticket: ticketNum,
@@ -349,7 +360,8 @@ exports.registrarSalida = async (req, res) => {
       metodoPago: mpBody,
       factura: facturaBody,
       tipoTarifa: tipoTarifaBody,
-      descripcion: descripcionBody
+      descripcion: descripcionBody,
+      operador: operadorBody // permitir override explícito si se envía
     } = req.body || {};
 
     // Tomo el doc con session (solo para snapshot coherente)
@@ -382,7 +394,12 @@ exports.registrarSalida = async (req, res) => {
     );
 
     // Movimiento consistente con el snapshot
-    const operadorNombre = getOperadorNombre(req);
+    // Prioridad: operador (body) -> req.user -> fallback
+    const operadorNombre =
+      (typeof operadorBody === 'string' && operadorBody.trim()) ||
+      getOperadorNombre(req) ||
+      'Operador Desconocido';
+
     const metodoPago = mpBody || estadiaSnapshot.metodoPago || 'Efectivo';
     const factura = facturaBody || 'Final';
     const tipoTarifa = tipoTarifaBody || estadiaSnapshot.tipoTarifa || 'estadia';

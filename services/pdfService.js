@@ -2,15 +2,12 @@
 const PDFDocument = require('pdfkit');
 
 async function createAuditPdf(vehiculos, operador, estadoAuditoria) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const doc = new PDFDocument({ margin: 50 });
 
     const buffers = [];
     doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => {
-      const pdfData = Buffer.concat(buffers);
-      resolve(pdfData);
-    });
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
 
     // Encabezado
     doc.fontSize(20).text('Reporte de Auditoría de Vehículos', { align: 'center' });
@@ -26,22 +23,24 @@ async function createAuditPdf(vehiculos, operador, estadoAuditoria) {
     doc.moveDown(2);
 
     // Tabla
-    const tableTop = doc.y;
     const tableLeft = 50;
-    const columnWidth = (doc.page.width - 100) / 3;
+    const colCount = 4; // Patente | Tipo | Estado | Entrada
+    const columnWidth = (doc.page.width - 100) / colCount;
 
     // Encabezados
     doc.font('Helvetica-Bold');
-    doc.text('Patente', tableLeft, tableTop);
-    doc.text('Tipo', tableLeft + columnWidth, tableTop);
-    doc.text('Estado', tableLeft + columnWidth * 2, tableTop);
+    doc.text('Patente', tableLeft, doc.y);
+    doc.text('Tipo', tableLeft + columnWidth, doc.y);
+    doc.text('Estado', tableLeft + columnWidth * 2, doc.y);
+    doc.text('Entrada', tableLeft + columnWidth * 3, doc.y);
     doc.font('Helvetica');
 
-    doc.moveTo(tableLeft, tableTop + 20)
-      .lineTo(tableLeft + columnWidth * 3, tableTop + 20)
+    const headerY = doc.y;
+    doc.moveTo(tableLeft, headerY + 20)
+      .lineTo(tableLeft + columnWidth * colCount, headerY + 20)
       .stroke();
 
-    let y = tableTop + 30;
+    let y = headerY + 30;
 
     vehiculos.forEach((vehiculo, index) => {
       if (y > doc.page.height - 100) {
@@ -62,19 +61,24 @@ async function createAuditPdf(vehiculos, operador, estadoAuditoria) {
 
       const tipo = typeof vehiculo.tipoVehiculo === 'string'
         ? vehiculo.tipoVehiculo
-        : vehiculo.tipoVehiculo?.nombre || 'N/A';
+        : vehiculo.tipoVehiculo?.nombre || vehiculo.tipo || 'N/A';
+
+      const entradaStr = vehiculo.entrada
+        ? new Date(vehiculo.entrada).toLocaleString()
+        : (vehiculo.estadiaActual?.entrada ? new Date(vehiculo.estadiaActual.entrada).toLocaleString() : '—');
 
       doc.fillColor(color);
       doc.text(vehiculo.patente || 'N/A', tableLeft, y);
       doc.text(tipo || 'N/A', tableLeft + columnWidth, y);
       doc.text(estadoTexto, tableLeft + columnWidth * 2, y);
+      doc.text(entradaStr, tableLeft + columnWidth * 3, y);
       doc.fillColor('black');
 
       y += 25;
 
       if (index < vehiculos.length - 1) {
         doc.moveTo(tableLeft, y - 5)
-          .lineTo(tableLeft + columnWidth * 3, y - 5)
+          .lineTo(tableLeft + columnWidth * colCount, y - 5)
           .stroke();
       }
     });
