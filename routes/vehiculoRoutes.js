@@ -1,3 +1,4 @@
+// routes/vehiculoRoutes.js
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -18,6 +19,16 @@ const {
 } = require('../controllers/vehiculoControllers');
 
 const router = express.Router();
+
+/**
+ * (Opcional recomendado)
+ * Si tenés un middleware de auth que setea req.user, activalo acá:
+ *
+ * const requireAuth = require('../middleware/requireAuth');
+ * router.use(requireAuth);
+ *
+ * Si aún no lo tenés, por ahora los controladores ya priorizan el `operador` del body.
+ */
 
 // ---- actualizar costoTotal de la estadía actual por patente
 router.put('/:patente/costoTotal', async (req, res) => {
@@ -46,7 +57,7 @@ router.post('/sin-entrada', createVehiculoSinEntrada);
 router.get('/', getVehiculos);
 router.get('/tipos', getTiposVehiculo);
 
-// más específicos antes que genéricos
+// Buscar por ticket (versión pública UI handheld)
 router.get('/ticket/:ticket', async (req, res) => {
   const ticketNum = parseInt(req.params.ticket, 10);
   if (Number.isNaN(ticketNum)) return res.status(400).json({ msg: "Ticket inválido" });
@@ -74,11 +85,18 @@ router.get('/ticket/:ticket', async (req, res) => {
 });
 router.get('/ticket-admin/:ticket', getVehiculoByTicketAdmin);
 
+// Rutas por ID/patente
 router.get('/id/:id', getVehiculoById);
 router.get('/:patente', getVehiculoByPatente);
+
+// Entradas y salidas
 router.put('/:patente/registrarEntrada', registrarEntrada);
 router.put('/:patente/registrarSalida', registrarSalida);
+
+// Abonos
 router.put('/asignar-abono/:patente', asignarAbonoAVehiculo);
+
+// Danger zone
 router.delete('/', eliminarTodosLosVehiculos);
 
 module.exports = router;
