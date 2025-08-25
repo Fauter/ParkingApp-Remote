@@ -1,9 +1,10 @@
-const CierreDeCaja = require('../models/CierreDeCaja'); // Asegurate que el modelo esté bien definido
+const CierreDeCaja = require('../models/CierreDeCaja');
 
 // Obtener todos los cierres
 const getAll = async (req, res) => {
   try {
-    const cierres = await CierreDeCaja.find();
+    const cierres = await CierreDeCaja.find()
+      .populate("operador", "nombre apellido username"); // 👈 siempre populamos
     res.json(cierres);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -13,7 +14,8 @@ const getAll = async (req, res) => {
 // Obtener uno por id
 const getById = async (req, res) => {
   try {
-    const cierre = await CierreDeCaja.findById(req.params.id);
+    const cierre = await CierreDeCaja.findById(req.params.id)
+      .populate("operador", "nombre apellido username"); // 👈 populamos también
     if (!cierre) return res.status(404).json({ message: 'No encontrado' });
     res.json(cierre);
   } catch (error) {
@@ -24,21 +26,49 @@ const getById = async (req, res) => {
 // Crear nuevo cierre
 const create = async (req, res) => {
   try {
-    const cierre = new CierreDeCaja(req.body);
+    const { fecha, hora, totalRecaudado, dejoEnCaja, totalRendido, operador } = req.body;
+
+    if (!operador) {
+      return res.status(400).json({ message: "El campo 'operador' es obligatorio" });
+    }
+
+    // 👇 Nos aseguramos de guardar solo el ID
+    const operadorId = typeof operador === "object" ? operador._id : operador;
+
+    const cierre = new CierreDeCaja({
+      fecha,
+      hora,
+      totalRecaudado,
+      dejoEnCaja,
+      totalRendido,
+      operador: operadorId,
+      retirado: false
+    });
+
     await cierre.save();
-    res.status(201).json(cierre);
+
+    // 👇 Devolvemos con populate para que frontend reciba el user completo
+    const cierrePopulado = await cierre.populate("operador", "nombre apellido username");
+
+    res.status(201).json(cierrePopulado);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 };
 
-// Actualizar cierre por id (aquí incluimos el update para el botón "Retirado")
+// Actualizar cierre por id
 const updateById = async (req, res) => {
   try {
     const id = req.params.id;
-    const updateData = req.body; // puede ser { retirado: true } o cualquier otro campo a actualizar
+    const updateData = req.body;
 
-    const cierreActualizado = await CierreDeCaja.findByIdAndUpdate(id, updateData, { new: true });
+    // 👇 aseguramos que operador quede como ObjectId
+    if (updateData.operador && typeof updateData.operador === "object") {
+      updateData.operador = updateData.operador._id;
+    }
+
+    const cierreActualizado = await CierreDeCaja.findByIdAndUpdate(id, updateData, { new: true })
+      .populate("operador", "nombre apellido username");
 
     if (!cierreActualizado) return res.status(404).json({ message: 'Cierre de caja no encontrado' });
 

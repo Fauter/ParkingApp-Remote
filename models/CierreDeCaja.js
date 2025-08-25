@@ -6,8 +6,12 @@ const cierreDeCajaSchema = new mongoose.Schema({
   totalRecaudado: { type: Number, required: true },
   dejoEnCaja: { type: Number, required: true },
   totalRendido: { type: Number, required: true },
-  operador: { type: String, required: true },
-  retirado: { type: Boolean, default: false } // NUEVO
+  operador: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "User",   // 👈 nombre exacto del modelo de usuarios
+    required: true 
+  },
+  retirado: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = mongoose.model('CierreDeCaja', cierreDeCajaSchema);
