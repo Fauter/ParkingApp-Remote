@@ -321,6 +321,7 @@ async function main() {
     app.use('/api/alertas',            normalizeRouter(alertaRoutes));
     app.use('/api/auditorias',         normalizeRouter(auditoriaRoutes));
     app.use('/api/camara',             normalizeRouter(camaraRoutes));
+    app.use('/api/webcam',             require('./routes/webcam'));
     // ⬇️ esta ruta ya está montada arriba con 'sacarfotoDir'; la dejo por compat pero no sirve archivos:
     // app.use('/camara/sacarfoto', express.static(path.join(__dirname, 'camara', 'sacarfoto'), { index: false, dotfiles: 'deny' }));
     app.use('/api/fotos',              normalizeRouter(fotoRoutes));

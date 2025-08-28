@@ -7,7 +7,8 @@ const MovimientoClienteSchema = new mongoose.Schema({
   monto: { type: Number, required: true },
   tipoVehiculo: { type: String, required: true },
   operador: { type: String, required: true, default: 'Carlos' },
-  patente: { type: String }
+  patente: { type: String },
+  foto: { type: String }
 }, { timestamps: true });
 
 module.exports = mongoose.model('MovimientoCliente', MovimientoClienteSchema);

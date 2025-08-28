@@ -12,7 +12,8 @@ exports.registrarMovimientoCliente = async (req, res) => {
       monto,
       tipoVehiculo, // 🛠️ Usa el nombre correcto según el schema
       operador = 'Carlos',
-      patente
+      patente,
+      foto
     } = req.body;
 
     // Validaciones básicas
@@ -57,7 +58,8 @@ exports.registrarMovimientoCliente = async (req, res) => {
       monto: Number(monto),
       tipoVehiculo: tipoVehiculo.trim(),
       operador: operador.trim(),
-      patente: patente?.trim() || null
+      patente: patente?.trim() || null,
+      foto: foto || null
     });
 
     const movimientoGuardado = await nuevoMovimiento.save();
