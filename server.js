@@ -274,6 +274,10 @@ async function main() {
 
     await sincronizarCounters();
 
+    // ⏱️ Cron turnos: inicia y corre una vuelta (se auto-programa cada minuto)
+    require('./cron/turnoChecker');
+    require('./cron/abonoChecker');
+
     // ⬇️ A PARTIR DE ACÁ se capturan requests para Outbox
     app.use(offlineMiddleware);
 

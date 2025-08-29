@@ -1,8 +1,11 @@
-// services/syncService.js
+/* eslint-disable no-console */
 const mongoose = require('mongoose');
 const { MongoClient, ObjectId } = require('mongodb');
 const dns = require('dns');
 
+// =======================
+// MODELOS LOCALES
+// =======================
 const Outbox = require('../models/Outbox');
 const Counter = require('../models/Counter');
 const Ticket = require('../models/Ticket');
@@ -12,13 +15,9 @@ const Cliente = require('../models/Cliente');
 const Vehiculo = require('../models/Vehiculo');
 const Abono = require('../models/Abono');
 const Movimiento = require('../models/Movimiento');
-let MovimientoCliente; // se carga lazy por si el proyecto no lo tiene en todos los despliegues
+let MovimientoCliente; // carga lazy
 
-let remoteClient = null;
-let syncing = false;
-let SELECTED_REMOTE_DBNAME = null; // nombre de DB remota elegido
-
-// Estado público para monitorizar
+// ✅ Estado (expuesto vía handle.getStatus())
 const status = {
   lastRun: null,
   lastError: null,
@@ -27,62 +26,54 @@ const status = {
   lastPullCounts: {},
 };
 
-// --------------------- utilidades generales ---------------------
+// =======================
+// WATERMARK / SYNC STATE
+// =======================
+// Guardamos por colección el último "updatedAt" (o createdAt) remoto aplicado localmente.
+const SyncStateSchema = new mongoose.Schema({
+  collection: { type: String, unique: true, required: true },
+  lastUpdatedAt: { type: Date }, // último updatedAt visto
+  lastObjectId: { type: String }, // fallback cuando no hay updatedAt/createdAt
+  meta: { type: mongoose.Schema.Types.Mixed },
+}, { collection: 'sync_state', timestamps: true });
 
+const SyncState = mongoose.models.SyncState || mongoose.model('SyncState', SyncStateSchema);
+
+// =======================
+// VARS DE CONEXIÓN REMOTA
+// =======================
+let remoteClient = null;
+let syncing = false;
+let SELECTED_REMOTE_DBNAME = null;
+
+// =======================
+// UTILS BÁSICOS
+// =======================
 function is24Hex(s) {
   return typeof s === 'string' && /^[a-fA-F0-9]{24}$/.test(s);
 }
 
-// Extrae un array de 12 bytes desde formas raras (Buffer/Uint8Array/objetos serializados)
 function bytesFromAny(x) {
   try {
     if (!x) return null;
-
-    // Array directo
     if (Array.isArray(x) && x.length === 12 && x.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
       return Uint8Array.from(x);
     }
-
-    // { type: 'Buffer', data: [ ... ] }  o  { data:[ ... ] }
     if (typeof x === 'object') {
-      if (Array.isArray(x.data) && x.data.length === 12) {
-        return Uint8Array.from(x.data);
-      }
-      if (x.type === 'Buffer' && Array.isArray(x.data) && x.data.length === 12) {
-        return Uint8Array.from(x.data);
-      }
-
-      // { $binary: { base64: '...' } }
-      if (x.$binary && typeof x.$binary.base64 === 'string') {
+      if (Array.isArray(x.data) && x.data.length === 12) return Uint8Array.from(x.data);
+      if (x.type === 'Buffer' && Array.isArray(x.data) && x.data.length === 12) return Uint8Array.from(x.data);
+      if (x.$binary?.base64) {
         const buf = Buffer.from(x.$binary.base64, 'base64');
         if (buf.length === 12) return new Uint8Array(buf);
       }
-
-      // { buffer: { '0':..., '11':... } } (caso que viste)
       if (x.buffer && typeof x.buffer === 'object') {
         const keys = Object.keys(x.buffer).filter(k => /^\d+$/.test(k)).sort((a,b)=>Number(a)-Number(b));
-        if (keys.length === 12) {
-          const arr = keys.map(k => Number(x.buffer[k]));
-          if (arr.every(n => Number.isFinite(n))) return Uint8Array.from(arr);
-        }
+        if (keys.length === 12) return Uint8Array.from(keys.map(k => Number(x.buffer[k])));
       }
-
-      // El propio objeto tiene keys '0'..'11'
       const directKeys = Object.keys(x).filter(k => /^\d+$/.test(k)).sort((a,b)=>Number(a)-Number(b));
-      if (directKeys.length === 12) {
-        const arr = directKeys.map(k => Number(x[k]));
-        if (arr.every(n => Number.isFinite(n))) return Uint8Array.from(arr);
-      }
-
-      // {_bsontype:'ObjectId', id:{...}}
-      if (x._bsontype === 'ObjectId' && x.id) {
-        return bytesFromAny(x.id);
-      }
-
-      // { id:{ ...buffer/data... } }
-      if (x.id) {
-        return bytesFromAny(x.id);
-      }
+      if (directKeys.length === 12) return Uint8Array.from(directKeys.map(k => Number(x[k])));
+      if (x._bsontype === 'ObjectId' && x.id) return bytesFromAny(x.id);
+      if (x.id) return bytesFromAny(x.id);
     }
   } catch {}
   return null;
@@ -91,20 +82,14 @@ function bytesFromAny(x) {
 function hexFromAny(o) {
   try {
     if (!o) return null;
-    if (typeof o === 'string') {
-      const s = o.trim();
-      if (is24Hex(s)) return s;
-    }
+    if (typeof o === 'string') return is24Hex(o.trim()) ? o.trim() : null;
     if (typeof o === 'object') {
       if (is24Hex(o.$oid)) return o.$oid;
       if (is24Hex(o.oid)) return o.oid;
       if (is24Hex(o._id)) return o._id;
       if (is24Hex(o.id)) return o.id;
-      // bytes
       const by = bytesFromAny(o);
-      if (by && by.length === 12) {
-        return Buffer.from(by).toString('hex');
-      }
+      if (by?.length === 12) return Buffer.from(by).toString('hex');
     }
   } catch {}
   return null;
@@ -114,30 +99,18 @@ function safeObjectId(id) {
   try {
     if (!id) return null;
     if (id instanceof ObjectId) return id;
-
-    // si viene en alguna forma reconocible → hex
     const hx = hexFromAny(id);
     if (is24Hex(hx)) return new ObjectId(hx);
-
-    // último intento: string directo
     const s = String(id);
     if (is24Hex(s)) return new ObjectId(s);
-
-    // si no pude castear, devuelvo tal cual (para que el caller decida)
     return id;
   } catch {
     return id;
   }
 }
 
-function toObjectIdMaybe(v) {
-  const casted = safeObjectId(v);
-  return casted instanceof ObjectId ? casted : v;
-}
+function deepClone(obj) { return JSON.parse(JSON.stringify(obj || {})); }
 
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj || {}));
-}
 function removeNulls(obj) {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(removeNulls);
@@ -153,18 +126,41 @@ function removeNulls(obj) {
   return out;
 }
 
-// Forzado de ObjectIds por colección
+async function hasInternet() {
+  return new Promise(resolve => {
+    dns.lookup('google.com', err => resolve(!err));
+  });
+}
+
+function getRemoteDbInstance() {
+  if (!remoteClient) return null;
+  try { return remoteClient.db(SELECTED_REMOTE_DBNAME || undefined); } catch { return null; }
+}
+
+async function connectRemote(atlasUri, dbName) {
+  if (!atlasUri) throw new Error('No ATLAS URI provista');
+  SELECTED_REMOTE_DBNAME = dbName || SELECTED_REMOTE_DBNAME || null;
+  const existing = getRemoteDbInstance();
+  if (existing) return existing;
+  console.log('[syncService] intentando conectar a Atlas...');
+  remoteClient = new MongoClient(atlasUri, { serverSelectionTimeoutMS: 3000 });
+  await remoteClient.connect();
+  const db = remoteClient.db(SELECTED_REMOTE_DBNAME || undefined);
+  console.log(`[syncService] conectado a Atlas (remote db="${db.databaseName}")`);
+  return db;
+}
+
+// =======================
+// ALIASES / CLAVES NATURALES / CASTEOS
+// =======================
 const REF_BY_COLL = {
   vehiculos: ['cliente', 'abono'],
   abonos: ['cliente', 'vehiculo'],
   movimientos: ['cliente', 'vehiculo', 'abono'],
   movimientoclientes: ['cliente', 'vehiculo', 'abono'],
-
-  // ✅ NUEVO: castear operador en cierres de caja
   cierresdecajas: ['operador'],
 };
 
-// 🔑 CLAVES NATURALES
 const NATURAL_KEYS = {
   tickets: ['ticket'],
   users: ['username', 'email'],
@@ -174,23 +170,19 @@ const NATURAL_KEYS = {
   tarifas: ['nombre'],
   promos: ['codigo'],
   alertas: ['codigo'],
-
-  // ✅ NUEVO: evita duplicados en POST sin _id
   cierresdecajas: ['fecha', 'hora', 'operador'],
 };
 
-// ✅ NUEVO: alias de colecciones remotas (lecturas legacy / apis que miran otro nombre)
 const REMOTE_ALIASES = {
-  // canónico -> variantes posibles que alguna app puede estar usando
   cierresdecajas: ['cierresDeCaja', 'cierredecajas', 'cierresdecaja', 'cierredecaja'],
+  movimientoclientes: ['movimientosClientes', 'movimientoClientes', 'movimientocliente'],
+  tipovehiculos: ['tiposvehiculo', 'tipoVehiculos', 'tiposVehiculo', 'tipoVehiculo'],
 };
 
 function getRemoteNames(colName) {
-  const canon = String(colName || '').trim();
-  const key = canon.toLowerCase();
-  const aliases = REMOTE_ALIASES[key] || [];
+  const canon = String(colName || '').trim().toLowerCase();
+  const aliases = REMOTE_ALIASES[canon] || [];
   const all = [canon, ...aliases].filter(Boolean);
-  // únicos preservando orden
   return all.filter((v, i) => all.indexOf(v) === i);
 }
 
@@ -200,7 +192,7 @@ function canonicalizeName(name) {
     if (lower === canon) return canon;
     if (aliases.some(a => a.toLowerCase() === lower)) return canon;
   }
-  return lower; // si no hay alias, queda como viene en lower
+  return lower;
 }
 
 function buildNaturalKeyFilter(colName, src) {
@@ -219,11 +211,8 @@ function coerceRefIds(doc, colName) {
   const fields = REF_BY_COLL[colName?.toLowerCase()] || [];
   for (const f of fields) {
     if (doc[f] !== undefined) {
-      if (Array.isArray(doc[f])) {
-        doc[f] = doc[f].map(toObjectIdMaybe);
-      } else {
-        doc[f] = toObjectIdMaybe(doc[f]);
-      }
+      if (Array.isArray(doc[f])) doc[f] = doc[f].map(safeObjectId);
+      else doc[f] = safeObjectId(doc[f]);
     }
   }
   return doc;
@@ -233,28 +222,18 @@ function normalizeIds(inputDoc, colName) {
   const clone = deepClone(inputDoc || {});
   if (clone._id != null) clone._id = safeObjectId(clone._id);
 
-  const commonKeys = new Set([
-    'cliente', 'vehiculo', 'abono', 'user', 'ticket', 'operador',
-    ...(REF_BY_COLL[colName?.toLowerCase()] || [])
-  ]);
-
+  const commonKeys = new Set(['cliente','vehiculo','abono','user','ticket','operador', ...(REF_BY_COLL[colName?.toLowerCase()] || [])]);
   for (const k of commonKeys) {
     if (clone[k] !== undefined) {
-      if (Array.isArray(clone[k])) {
-        clone[k] = clone[k].map(safeObjectId);
-      } else {
-        clone[k] = safeObjectId(clone[k]);
-      }
+      if (Array.isArray(clone[k])) clone[k] = clone[k].map(safeObjectId);
+      else clone[k] = safeObjectId(clone[k]);
     }
   }
 
-  const maybeIdArrays = ['abonos', 'vehiculos', 'movimientos'];
+  const maybeIdArrays = ['abonos','vehiculos','movimientos'];
   for (const k of maybeIdArrays) {
-    if (Array.isArray(clone[k])) {
-      clone[k] = clone[k].map(safeObjectId);
-    }
+    if (Array.isArray(clone[k])) clone[k] = clone[k].map(safeObjectId);
   }
-
   return removeNulls(clone);
 }
 
@@ -279,59 +258,18 @@ function extractIdFromItem(item) {
   if (item.query && (item.query.id || item.query._id)) return item.query.id || item.query._id;
   if (item.route) {
     const parts = item.route.split('/').filter(Boolean);
-    for (const part of parts) {
-      if (mongoose.Types.ObjectId.isValid(part)) return part;
-    }
+    for (const part of parts) if (mongoose.Types.ObjectId.isValid(part)) return part;
   }
   return null;
-}
-
-async function hasInternet() {
-  return new Promise(resolve => {
-    dns.lookup('google.com', err => resolve(!err));
-  });
-}
-
-// DB remota
-function getRemoteDbInstance() {
-  if (!remoteClient) return null;
-  try {
-    return remoteClient.db(SELECTED_REMOTE_DBNAME || undefined);
-  } catch (_e) {
-    return null;
-  }
-}
-
-async function connectRemote(atlasUri, dbName) {
-  if (!atlasUri) throw new Error('No ATLAS URI provista');
-  SELECTED_REMOTE_DBNAME = dbName || SELECTED_REMOTE_DBNAME || null;
-
-  const existing = getRemoteDbInstance();
-  if (existing) return existing;
-
-  console.log('[syncService] intentando conectar a Atlas...');
-  remoteClient = new MongoClient(atlasUri, { serverSelectionTimeoutMS: 3000 });
-  await remoteClient.connect();
-  const db = remoteClient.db(SELECTED_REMOTE_DBNAME || undefined);
-  console.log(`[syncService] conectado a Atlas (remote db="${db.databaseName}")`);
-  return db;
 }
 
 function looksLikeValidDocument(obj) {
   return !!(obj && typeof obj === 'object' && !Array.isArray(obj));
 }
 
-// ---- Heurísticas ----
-function isCompositeRegistrarAbono(item) {
-  const r = (item && item.route) || '';
-  return /\/api\/abonos\/registrar-abono/i.test(r);
-}
-function isProbablyVehiculoShaped(doc) {
-  return !!(doc && (doc.estadiaActual || doc.turno === true || doc.abonado === true || (doc.patente && doc.tipoVehiculo && !doc.tipoAbono)));
-}
-
-// --------------------- helpers de escritura remota ---------------------
-
+// =======================
+// OUTBOX: UPSERT REMOTO
+// =======================
 async function upsertRemoteDoc(remoteDb, colName, rawDoc) {
   if (!rawDoc) return 0;
   const names = getRemoteNames(colName);
@@ -339,31 +277,49 @@ async function upsertRemoteDoc(remoteDb, colName, rawDoc) {
   coerceRefIds(doc, colName);
   const cleaned = removeNulls(doc);
   const _id = safeObjectId(cleaned._id);
-  const rest = deepClone(cleaned);
-  delete rest._id;
+  const rest = deepClone(cleaned); delete rest._id;
 
   let pushed = 0;
-
   for (const name of names) {
     const collection = remoteDb.collection(name);
+
+    // 🔒 Protección de 'fecha' sólo para movimientos
+    if (String(colName).toLowerCase() === 'movimientos') {
+      const $set = removeNulls(deepClone(rest));
+      const $setOnInsert = {};
+      if (Object.prototype.hasOwnProperty.call($set, 'fecha')) delete $set.fecha;
+      const creationDate = cleaned.fecha || cleaned.createdAt || new Date();
+      $setOnInsert.fecha = creationDate;
+
+      if (_id instanceof ObjectId) {
+        await collection.updateOne({ _id }, { ...(Object.keys($set).length ? { $set } : {}), $setOnInsert }, { upsert: true });
+      } else {
+        const nk = buildNaturalKeyFilter(colName, cleaned);
+        if (nk) {
+          await collection.updateOne(nk, { ...(Object.keys($set).length ? { $set } : {}), $setOnInsert }, { upsert: true });
+        } else {
+          // Insert "puro" mantiene fecha tal como viene
+          await collection.insertOne({ _id: cleaned._id, ...$setOnInsert, ...$set });
+        }
+      }
+      pushed++;
+      continue;
+    }
+
+    // Resto de colecciones (comportamiento original)
     if (_id instanceof ObjectId) {
       await collection.updateOne({ _id }, { $set: rest }, { upsert: true });
     } else {
-      // si no hay _id, usar claves naturales si existen
       const nk = buildNaturalKeyFilter(colName, cleaned);
-      if (nk) {
-        await collection.updateOne(nk, { $set: rest }, { upsert: true });
-      } else {
-        await collection.insertOne(cleaned);
-      }
+      if (nk) await collection.updateOne(nk, { $set: rest }, { upsert: true });
+      else await collection.insertOne(cleaned);
     }
     pushed++;
   }
-
   return pushed;
 }
 
-// Trata especialmente el outbox de /api/abonos/registrar-abono
+// Casos compuestos (registrar abono) — lo mantenemos
 async function ensureCompositeRegistrarAbonoSynced(remoteDb, item) {
   const body = item?.document || {};
 
@@ -371,17 +327,11 @@ async function ensureCompositeRegistrarAbonoSynced(remoteDb, item) {
   if (body.cliente && mongoose.Types.ObjectId.isValid(body.cliente)) {
     cliente = await Cliente.findById(body.cliente).lean();
   }
-  if (!cliente && body.dniCuitCuil) {
-    cliente = await Cliente.findOne({ dniCuitCuil: body.dniCuitCuil }).lean();
-  }
-  if (!cliente && body.email) {
-    cliente = await Cliente.findOne({ email: body.email }).lean();
-  }
+  if (!cliente && body.dniCuitCuil) cliente = await Cliente.findOne({ dniCuitCuil: body.dniCuitCuil }).lean();
+  if (!cliente && body.email)      cliente = await Cliente.findOne({ email: body.email }).lean();
 
   let vehiculo = null;
-  if (body.patente) {
-    vehiculo = await Vehiculo.findOne({ patente: body.patente }).lean();
-  }
+  if (body.patente) vehiculo = await Vehiculo.findOne({ patente: body.patente }).lean();
 
   let abono = null;
   if (vehiculo && cliente) {
@@ -395,9 +345,7 @@ async function ensureCompositeRegistrarAbonoSynced(remoteDb, item) {
     mov = await Movimiento.findOne({ cliente: cliente._id, patente: body.patente }).sort({ createdAt: -1 }).lean();
   }
 
-  if (!MovimientoCliente) {
-    try { MovimientoCliente = require('../models/MovimientoCliente'); } catch (_) {}
-  }
+  if (!MovimientoCliente) { try { MovimientoCliente = require('../models/MovimientoCliente'); } catch (_) {} }
   let movCli = null;
   if (MovimientoCliente && cliente) {
     movCli = await MovimientoCliente.findOne({ cliente: cliente._id }).sort({ createdAt: -1 }).lean();
@@ -413,38 +361,50 @@ async function ensureCompositeRegistrarAbonoSynced(remoteDb, item) {
   if (!pushed) throw new Error('composite_registrar_abono: no se encontraron docs locales para sincronizar');
 }
 
-// --------------------- procesamiento de Outbox ---------------------
-
 async function processOutboxItem(remoteDb, item) {
-  if (isCompositeRegistrarAbono(item)) {
-    await ensureCompositeRegistrarAbonoSynced(remoteDb, item);
-    return;
-  }
+  const isComposite = /\/api\/abonos\/registrar-abono/i.test(item?.route || '');
+  if (isComposite) { await ensureCompositeRegistrarAbonoSynced(remoteDb, item); return; }
 
   const colName = getCollectionNameFromItem(item);
   if (!colName) throw new Error('invalid_collection');
 
-  // sanity: algunos endpoints devuelven sobre ->document wrappers, validamos acá igual
-  if (item.method !== 'DELETE' && !looksLikeValidDocument(item.document)) {
+  if (item.method !== 'DELETE' && !looksLikeValidDocument(item.document) && !isComposite) {
     throw new Error('invalid_document');
   }
 
   const remoteNames = getRemoteNames(colName);
   if (!remoteNames.length) throw new Error(`Colección remota no encontrada (aliases vacíos): ${colName}`);
 
-  // --- POST ---
+  // POST
   if (item.method === 'POST') {
     const doc = deepClone(item.document || {});
     coerceRefIds(doc, colName);
     const cleaned = removeNulls(doc);
-
-    // Preferimos upsert por _id -> sino por claves naturales -> sino insert
     const _id = safeObjectId(cleaned._id);
     const nk = buildNaturalKeyFilter(colName, cleaned);
     const rest = deepClone(cleaned); delete rest._id;
 
     for (const name of remoteNames) {
       const collection = remoteDb.collection(name);
+
+      if (String(colName).toLowerCase() === 'movimientos') {
+        // 🔒 No sobrescribir fecha si ya existiera: sólo on-insert
+        const $set = removeNulls(deepClone(rest));
+        const $setOnInsert = {};
+        if (Object.prototype.hasOwnProperty.call($set, 'fecha')) delete $set.fecha;
+        const creationDate = cleaned.fecha || cleaned.createdAt || new Date();
+        $setOnInsert.fecha = creationDate;
+
+        if (_id instanceof ObjectId) {
+          await collection.updateOne({ _id }, { ...(Object.keys($set).length ? { $set } : {}), $setOnInsert }, { upsert: true });
+        } else if (nk) {
+          await collection.updateOne(nk, { ...(Object.keys($set).length ? { $set } : {}), $setOnInsert }, { upsert: true });
+        } else {
+          await collection.insertOne({ _id: cleaned._id, ...$setOnInsert, ...$set });
+        }
+        continue;
+      }
+
       if (_id instanceof ObjectId) {
         await collection.updateOne({ _id }, { $set: rest }, { upsert: true });
       } else if (nk) {
@@ -456,88 +416,89 @@ async function processOutboxItem(remoteDb, item) {
     return;
   }
 
-  // --- PUT / PATCH ---
+  // PUT/PATCH
   if (item.method === 'PUT' || item.method === 'PATCH') {
     const doc = deepClone(item.document || {});
     coerceRefIds(doc, colName);
-
     const id = doc._id || extractIdFromItem(item);
     if (!id) throw new Error('sin id en outbox');
 
     const filter = { _id: safeObjectId(id) };
-
     const setBody = deepClone(doc); delete setBody._id;
     const $set = removeNulls(setBody);
-
     const $unset = {};
+    const $setOnInsert = {};
+
     Object.keys(setBody || {}).forEach(k => {
       if (setBody[k] === null) { $unset[k] = ""; delete $set[k]; }
     });
 
-    if (colName.toLowerCase() === 'vehiculos') {
-      const hasEstadia = Object.prototype.hasOwnProperty.call(doc, 'estadiaActual');
-      const isEmptyObj =
-        hasEstadia &&
-        doc.estadiaActual &&
-        typeof doc.estadiaActual === 'object' &&
-        !Array.isArray(doc.estadiaActual) &&
-        Object.keys(doc.estadiaActual).length === 0;
+    // 🔒 Protección 'fecha' sólo en movimientos (no pisar en updates)
+    if (String(colName).toLowerCase() === 'movimientos') {
+      if (Object.prototype.hasOwnProperty.call($set, 'fecha')) delete $set.fecha;
+      const creationDate = doc.fecha || doc.createdAt || new Date();
+      $setOnInsert.fecha = creationDate;
+    }
 
-      if (!hasEstadia || isEmptyObj) {
+    if (String(colName).toLowerCase() === 'vehiculos') {
+      const hasEstadia = Object.prototype.hasOwnProperty.call(doc, 'estadiaActual');
+      const isEmpty =
+        hasEstadia && doc.estadiaActual && typeof doc.estadiaActual === 'object' &&
+        !Array.isArray(doc.estadiaActual) && Object.keys(doc.estadiaActual).length === 0;
+      if (!hasEstadia || isEmpty) {
         $unset.estadiaActual = "";
-        if ($set && Object.prototype.hasOwnProperty.call($set, 'estadiaActual')) {
-          delete $set.estadiaActual;
-        }
+        if ($set && Object.prototype.hasOwnProperty.call($set, 'estadiaActual')) delete $set.estadiaActual;
       }
     }
 
-    const updateOps = Object.keys($unset).length ? { $set, $unset } : { $set };
+    const updateOps = {};
+    if (Object.keys($set).length)         updateOps.$set = $set;
+    if (Object.keys($unset).length)       updateOps.$unset = $unset;
+    if (Object.keys($setOnInsert).length) updateOps.$setOnInsert = $setOnInsert;
 
     for (const name of remoteNames) {
       const collection = remoteDb.collection(name);
-      await collection.updateOne(filter, updateOps, { upsert: true });
+      await collection.updateOne(
+        filter,
+        Object.keys(updateOps).length ? updateOps
+          : (String(colName).toLowerCase() === 'movimientos'
+              ? { $setOnInsert: { fecha: new Date() } }
+              : { $set: {} }),
+        { upsert: true }
+      );
     }
     return;
   }
 
-  // --- DELETE ---
+  // DELETE
   if (item.method === 'DELETE') {
-    const id =
-      (item.document && (item.document._id || item.document.id)) ||
-      extractIdFromItem(item);
-
+    const id = (item.document && (item.document._id || item.document.id)) || extractIdFromItem(item);
     const isBulk =
       (item.query && (item.query.__bulk === true || item.query.__bulk === 'true')) ||
       (item.query && (item.query.all === true || item.query.all === 'true')) ||
       item.bulk === true || item.bulk === 'true';
 
-    const bulkFilter = (item.query && item.query.filter) ||
-                       (item.document && item.document.filter) || {};
+    const bulkFilter =
+      (item.query && item.query.filter) ||
+      (item.document && item.document.filter) || {};
 
     for (const name of remoteNames) {
       const collection = remoteDb.collection(name);
-
       if (id) {
         await collection.deleteOne({ _id: safeObjectId(id) });
-        continue;
+      } else if (isBulk) {
+        const effective = (bulkFilter && typeof bulkFilter === 'object' && Object.keys(bulkFilter).length)
+          ? bulkFilter : {};
+        await collection.deleteMany(effective);
+      } else {
+        const doc = item.document || {};
+        const nk = buildNaturalKeyFilter(colName, doc);
+        if (nk) { await collection.deleteOne(nk); }
+        else if (doc.ticket !== undefined) { await collection.deleteOne({ ticket: doc.ticket }); }
+        else if (doc.username) { await collection.deleteOne({ username: doc.username }); }
+        else if (doc.email)    { await collection.deleteOne({ email: doc.email }); }
+        else { throw new Error('DELETE sin id ni bulk flag'); }
       }
-
-      if (isBulk) {
-        const effectiveFilter = (bulkFilter && typeof bulkFilter === 'object' && Object.keys(bulkFilter).length)
-          ? bulkFilter
-          : {};
-        await collection.deleteMany(effectiveFilter);
-        continue;
-      }
-
-      const doc = item.document || {};
-      const nk = buildNaturalKeyFilter(colName, doc);
-      if (nk) { await collection.deleteOne(nk); continue; }
-      if (doc.ticket !== undefined) { await collection.deleteOne({ ticket: doc.ticket }); continue; }
-      if (doc.username) { await collection.deleteOne({ username: doc.username }); continue; }
-      if (doc.email) { await collection.deleteOne({ email: doc.email }); continue; }
-
-      throw new Error('DELETE sin id ni bulk flag');
     }
     return;
   }
@@ -545,13 +506,13 @@ async function processOutboxItem(remoteDb, item) {
   throw new Error('Método no soportado en outbox: ' + item.method);
 }
 
-// --------------------- PULL (desde remoto a local) ---------------------
-
+// =======================
+// PULL REMOTO → LOCAL  (INCREMENTAL con watermark)
+// *En modo MIRROR, forzamos FULL SCAN para esa colección*
+// =======================
 function buildDedupKey(collName, doc) {
   const keys = NATURAL_KEYS[collName?.toLowerCase()] || [];
-  if (keys.length) {
-    return keys.map(k => String(doc[k])).join('||');
-  }
+  if (keys.length) return keys.map(k => String(doc[k])).join('||');
   return String(doc._id);
 }
 
@@ -561,25 +522,21 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
   cleaned._id = safeObjectId(cleaned._id);
   const _id = cleaned._id;
 
-  const REL_ARRAYS_BY_COLL = {
-    clientes: ['abonos','vehiculos','movimientos'],
-  };
+  const REL_ARRAYS_BY_COLL = { clientes: ['abonos','vehiculos','movimientos'] };
   const relArrays = new Set(REL_ARRAYS_BY_COLL[collName?.toLowerCase()] || []);
 
-  const rest = deepClone(cleaned);
-  delete rest._id;
+  const rest = deepClone(cleaned); delete rest._id;
 
   const addToSet = {};
   const pullOps  = {};
   const setOps   = {};
   const unsetOps = {};
+  const setOnInsert = {};
 
   for (const field of Object.keys(rest)) {
     if (!relArrays.has(field)) continue;
     const val = rest[field];
-
     if (val == null) { delete rest[field]; continue; }
-
     if (!Array.isArray(val)) { delete rest[field]; continue; }
     const arr = val.map(safeObjectId).filter(Boolean);
 
@@ -589,25 +546,27 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
         pullOps[field] = { $nin: arr };
       }
     } else {
-      if (arr.length > 0) {
-        addToSet[field] = { $each: arr };
-      }
+      if (arr.length > 0) addToSet[field] = { $each: arr };
     }
     delete rest[field];
   }
 
   Object.assign(setOps, removeNulls(rest));
 
-  if (collName.toLowerCase() === 'vehiculos') {
-    const hasEstadia = Object.prototype.hasOwnProperty.call(cleaned, 'estadiaActual');
-    const isEmptyObj =
-      hasEstadia &&
-      cleaned.estadiaActual &&
-      typeof cleaned.estadiaActual === 'object' &&
-      !Array.isArray(cleaned.estadiaActual) &&
-      Object.keys(cleaned.estadiaActual).length === 0;
+  // 🔒 Protección 'fecha' sólo para movimientos
+  const isMovs = String(collName).toLowerCase() === 'movimientos';
+  if (isMovs) {
+    if (Object.prototype.hasOwnProperty.call(setOps, 'fecha')) delete setOps.fecha;
+    const creationDate = cleaned.fecha || cleaned.createdAt || new Date();
+    setOnInsert.fecha = creationDate;
+  }
 
-    if (!hasEstadia || isEmptyObj) {
+  if (String(collName).toLowerCase() === 'vehiculos') {
+    const hasEstadia = Object.prototype.hasOwnProperty.call(cleaned, 'estadiaActual');
+    const isEmpty =
+      hasEstadia && cleaned.estadiaActual && typeof cleaned.estadiaActual === 'object' &&
+      !Array.isArray(cleaned.estadiaActual) && Object.keys(cleaned.estadiaActual).length === 0;
+    if (!hasEstadia || isEmpty) {
       unsetOps.estadiaActual = "";
       if (hasEstadia && setOps && Object.prototype.hasOwnProperty.call(setOps, 'estadiaActual')) {
         delete setOps.estadiaActual;
@@ -616,9 +575,9 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
   }
 
   const updateOps = {};
-  if (Object.keys(setOps).length)     updateOps.$set     = setOps;
+  if (Object.keys(setOps).length)     updateOps.$set      = setOps;
   if (Object.keys(addToSet).length)   updateOps.$addToSet = addToSet;
-  if (Object.keys(unsetOps).length)   updateOps.$unset   = unsetOps;
+  if (Object.keys(unsetOps).length)   updateOps.$unset    = unsetOps;
   if (mirrorArrays) {
     for (const k of Object.keys(pullOps)) {
       if (updateOps.$set && Object.prototype.hasOwnProperty.call(updateOps.$set, k)) {
@@ -626,12 +585,19 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
       }
     }
   }
+  if (Object.keys(setOnInsert).length) updateOps.$setOnInsert = setOnInsert;
 
   try {
-    await localCollection.updateOne({ _id }, Object.keys(updateOps).length ? updateOps : { $set: {} }, { upsert: true });
+    await localCollection.updateOne(
+      { _id },
+      Object.keys(updateOps).length
+        ? updateOps
+        : (isMovs ? { $setOnInsert: { fecha: new Date() } } : { $set: {} }),
+      { upsert: true }
+    );
     return true;
   } catch (err) {
-    const code = err && (err.code || (err.errorResponse && err.errorResponse.code));
+    const code = err && (err.code || err?.errorResponse?.code);
     if (code !== 11000) throw err;
 
     const keys = NATURAL_KEYS[collName?.toLowerCase()] || [];
@@ -640,7 +606,7 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
       if (cleaned[k] === undefined || cleaned[k] === null) continue;
       const f = {}; f[k] = cleaned[k]; f._id = { $ne: cleaned._id };
       const delRes = await localCollection.deleteMany(f);
-      if (delRes && delRes.deletedCount) {
+      if (delRes?.deletedCount) {
         anyDelete = true;
         console.warn(`[syncService] ${collName}: conflicto UNIQUE (${k}="${cleaned[k]}"). Borré locales duplicados: ${delRes.deletedCount}.`);
       }
@@ -657,7 +623,7 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
           if (field && value !== undefined) {
             const f = {}; f[field] = value; f._id = { $ne: cleaned._id };
             const delRes = await localCollection.deleteMany(f);
-            if (delRes && delRes.deletedCount) {
+            if (delRes?.deletedCount) {
               anyDelete = true;
               console.warn(`[syncService] ${collName}: conflicto UNIQUE (${field}="${value}"). Borré locales duplicados: ${delRes.deletedCount}.`);
             }
@@ -666,83 +632,164 @@ async function upsertLocalDocWithConflictResolution(localCollection, collName, r
       }
     }
 
-    await localCollection.updateOne({ _id }, Object.keys(updateOps).length ? updateOps : { $set: {} }, { upsert: true });
+    await localCollection.updateOne(
+      { _id },
+      Object.keys(updateOps).length
+        ? updateOps
+        : (isMovs ? { $setOnInsert: { fecha: new Date() } } : { $set: {} }),
+      { upsert: true }
+    );
     if (stats) stats.conflictsResolved = (stats.conflictsResolved || 0) + 1;
     return true;
   }
 }
 
-/**
- * PULL principal. Con mirrorAll = true, hace “mirror” (borrado local de sobrantes)
- * **para TODAS** las colecciones (excepto skip).
- * ✅ NUEVO: consolida alias remotos en el canónico local.
- */
+// === Detección de campo temporal para incremental ===
+const _hasTemporalFieldCache = new Map(); // key: dbName#coll -> 'updatedAt'|'createdAt'|null
+async function detectTemporalField(remoteDb, collName) {
+  const key = `${remoteDb.databaseName}#${collName}`;
+  if (_hasTemporalFieldCache.has(key)) return _hasTemporalFieldCache.get(key);
+
+  // Inspecciono una muestra mínima
+  let field = null;
+  try {
+    const c = remoteDb.collection(collName);
+    const doc = await c.find({}, { projection: { updatedAt: 1, createdAt: 1 }, limit: 1 }).next();
+    if (doc?.updatedAt instanceof Date) field = 'updatedAt';
+    else if (doc?.createdAt instanceof Date) field = 'createdAt';
+  } catch {}
+  _hasTemporalFieldCache.set(key, field);
+  return field;
+}
+
+async function getSyncState(collName) {
+  const canon = canonicalizeName(collName);
+  let st = await SyncState.findOne({ collection: canon });
+  if (!st) st = await SyncState.create({ collection: canon });
+  return st;
+}
+
+async function saveSyncState(collName, patch) {
+  const canon = canonicalizeName(collName);
+  await SyncState.updateOne({ collection: canon }, { $set: patch }, { upsert: true });
+}
+
 async function pullCollectionsFromRemote(remoteDb, requestedCollections = [], opts = {}) {
+  const {
+    pullAll = false,
+    mirrorAll = false,
+    mirrorCollections = [],
+    skipCollections = [],
+    skipCollectionsSet = new Set(),
+    incrementalBatch = Number(process.env.SYNC_PULL_BATCH) || 5000,
+  } = opts;
+
   const local = mongoose.connection;
   const resultCounts = {};
-  const mirrorAll = !!opts.mirrorAll;
-  const mirrorSet = new Set((opts.mirrorCollections || []).map(s => s.trim()).filter(Boolean));
+  let collections = requestedCollections;
 
-  // Si pullAll: listamos remoto, canonicalizamos nombres y hacemos únicos
-  if (opts.pullAll) {
+  if (pullAll) {
     const cols = await remoteDb.listCollections().toArray();
-    const namesRaw = cols.map(c => c.name).filter(n => !n.startsWith('system.') && n !== 'outbox');
+    const namesRaw = cols.map(c => c.name).filter(n => !n.startsWith('system.') && n !== 'outbox' && n !== 'sync_state');
     const canonicalized = namesRaw.map(canonicalizeName);
-    const uniq = Array.from(new Set(canonicalized));
-    requestedCollections = uniq;
+    collections = Array.from(new Set(canonicalized));
   }
 
-  const skipConfigured = new Set((opts.skipCollections || []).map(s => s.toLowerCase()));
-  const skipBulk = opts.skipCollectionsSet || new Set();
+  const skipConfigured = new Set((skipCollections || []).map(s => s.toLowerCase()));
 
-  requestedCollections = (requestedCollections || [])
+  collections = (collections || [])
     .filter(c => c !== 'counters')
     .filter(c => !skipConfigured.has(String(c).toLowerCase()))
-    .filter(c => !skipBulk.has(c));
+    .filter(c => !skipCollectionsSet.has(c));
 
-  if (!requestedCollections.length) return resultCounts;
+  if (!collections.length) return resultCounts;
 
-  for (const coll of requestedCollections) {
+  for (const coll of collections) {
     const stats = { remoteTotal: 0, upsertedOrUpdated: 0, deletedLocal: 0, conflictsResolved: 0 };
     try {
-      // ✅ leer de todas las variantes remotas y consolidar
       const remoteNames = getRemoteNames(coll);
       const union = [];
       const seen = new Set();
 
+      // ⚠️ IMPORTANTE: si esta colección está en modo MIRROR, forzamos FULL SCAN (sin watermark)
+      const isMirrorThisCollection = !!(mirrorAll || new Set(mirrorCollections || []).has(coll));
+      const st = await getSyncState(coll);
+      const temporalField = await detectTemporalField(remoteDb, remoteNames[0]); // con 1 alias alcanza
+
       for (const name of remoteNames) {
         try {
-          const remoteCollection = remoteDb.collection(name);
-          const docs = await remoteCollection.find({}).toArray();
-          for (const d of docs) {
-            const key = buildDedupKey(coll, d) + '##' + String(d._id);
-            if (seen.has(key)) continue;
-            seen.add(key);
-            union.push(d);
+          const rc = remoteDb.collection(name);
+          let filter = {};
+          const sort = {};
+
+          if (isMirrorThisCollection) {
+            // → FULL SCAN para espejo: garantizamos conjunto completo para comparar y borrar
+            sort._id = 1;
+          } else {
+            // → INCREMENTAL clásico con watermark
+            if (temporalField) {
+              if (st.lastUpdatedAt) filter[temporalField] = { $gt: st.lastUpdatedAt };
+              sort[temporalField] = 1;
+            } else if (st.lastObjectId) {
+              filter._id = { $gt: safeObjectId(st.lastObjectId) };
+              sort._id = 1;
+            } else {
+              sort._id = 1; // primera vez: full scan, pero no se borra nada en este paso (no-mirror)
+            }
+          }
+
+          let fetched = 0;
+          let lastDoc = null;
+          const cursor = rc.find(filter).sort(sort);
+          while (await cursor.hasNext()) {
+            const batch = [];
+            while (batch.length < incrementalBatch && await cursor.hasNext()) {
+              const d = await cursor.next();
+              batch.push(d);
+            }
+            for (const d of batch) {
+              const key = buildDedupKey(coll, d) + '##' + String(d._id);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              union.push(d);
+              lastDoc = d;
+            }
+            fetched += batch.length;
+          }
+
+          // Actualizo watermark tentativamente para esta alias (se consolida más abajo)
+          if (lastDoc) {
+            if (temporalField && lastDoc[temporalField] instanceof Date) {
+              st._tmpMaxDate = st._tmpMaxDate && st._tmpMaxDate > lastDoc[temporalField]
+                ? st._tmpMaxDate : lastDoc[temporalField];
+            } else if (lastDoc._id) {
+              const idHex = String(hexFromAny(lastDoc._id));
+              if (idHex) st._tmpMaxId = st._tmpMaxId && st._tmpMaxId > idHex ? st._tmpMaxId : idHex;
+            }
           }
         } catch (e) {
-          // si alguna variante no existe, seguimos
+          // si la variante no existe, continúo
         }
       }
 
       stats.remoteTotal = union.length;
 
       const localCollection = local.collection(coll);
-
-      const mirrorArraysForThis = !!(mirrorAll || mirrorSet.has(coll));
-
       for (const raw of union) {
-        await upsertLocalDocWithConflictResolution(
-          localCollection,
-          coll,
-          raw,
-          stats,
-          { mirrorArrays: mirrorArraysForThis }
-        );
+        await upsertLocalDocWithConflictResolution(localCollection, coll, raw, stats, { mirrorArrays: isMirrorThisCollection });
         stats.upsertedOrUpdated++;
       }
 
-      if (mirrorAll || mirrorSet.has(coll)) {
+      // ✅ Guardar watermark consolidado (solo si hubo docs)
+      if (union.length) {
+        const patch = {};
+        if (st._tmpMaxDate) patch.lastUpdatedAt = st._tmpMaxDate;
+        else if (st._tmpMaxId) patch.lastObjectId = st._tmpMaxId;
+        if (Object.keys(patch).length) await saveSyncState(coll, patch);
+      }
+
+      // ❗ Borrado local SOLO en modo espejo (y ahora sí con conjunto remoto COMPLETO)
+      if (isMirrorThisCollection) {
         const remoteIds = new Set(union.map(d => String(d._id)));
         const localIdsDocs = await localCollection.find({}, { projection: { _id: 1 } }).toArray();
 
@@ -751,15 +798,11 @@ async function pullCollectionsFromRemote(remoteDb, requestedCollections = [], op
           const idRaw = d._id;
           const idStr = String(idRaw);
           if (!remoteIds.has(idStr)) {
-            if (idRaw instanceof ObjectId) {
-              toDeleteObjIds.push(idRaw);
-            } else if (typeof idRaw === 'string' && is24Hex(idRaw)) {
-              toDeleteObjIds.push(new ObjectId(idRaw));
-            } else {
+            if (idRaw instanceof ObjectId) toDeleteObjIds.push(idRaw);
+            else if (typeof idRaw === 'string' && is24Hex(idRaw)) toDeleteObjIds.push(new ObjectId(idRaw));
+            else {
               const delOne = await localCollection.deleteOne({ _id: idRaw });
-              if (delOne && delOne.deletedCount) {
-                stats.deletedLocal += delOne.deletedCount;
-              }
+              if (delOne?.deletedCount) stats.deletedLocal += delOne.deletedCount;
             }
           }
         }
@@ -771,12 +814,18 @@ async function pullCollectionsFromRemote(remoteDb, requestedCollections = [], op
 
       resultCounts[coll] = stats;
       const aliasNote = remoteNames.length > 1 ? ` (aliases: ${remoteNames.join(', ')})` : '';
-      console.log(`[syncService] pulled ${coll}${aliasNote} (db="${remoteDb.databaseName}"): remote=${stats.remoteTotal}, upserted=${stats.upsertedOrUpdated}, deletedLocal=${stats.deletedLocal}${stats.conflictsResolved ? `, conflictsResolved=${stats.conflictsResolved}` : ''} ${mirrorAll ? '[mirrorAll]' : (mirrorSet.has(coll) ? '[mirror]' : '')}`);
+      const mirrorFlag = isMirrorThisCollection ? '[mirror:FULL]' : '';
+      console.log(
+        `[syncService] pulled ${coll}${aliasNote} (db="${remoteDb.databaseName}"): ` +
+        `remote=${stats.remoteTotal}, upserted=${stats.upsertedOrUpdated}, deletedLocal=${stats.deletedLocal}` +
+        `${stats.conflictsResolved ? `, conflictsResolved=${stats.conflictsResolved}` : ''} ${mirrorFlag}`
+      );
     } catch (err) {
       console.warn(`[syncService] no se pudo pull ${coll}:`, err.message || err);
     }
   }
 
+  // Ajuste de counter ticket post-pull
   try {
     const maxTicket = await Ticket.findOne().sort({ ticket: -1 }).select('ticket').lean();
     const maxNumero = maxTicket && typeof maxTicket.ticket === 'number' ? maxTicket.ticket : 0;
@@ -789,8 +838,9 @@ async function pullCollectionsFromRemote(remoteDb, requestedCollections = [], op
   return resultCounts;
 }
 
-// --------------------- ciclo de sincronización ---------------------
-
+// =======================
+// CICLO DE SINCRONIZACIÓN (REMOTE-FIRST)
+// =======================
 async function syncTick(atlasUri, opts = {}, statusCb = () => {}) {
   if (syncing) return;
   syncing = true;
@@ -825,6 +875,21 @@ async function syncTick(atlasUri, opts = {}, statusCb = () => {}) {
     status.online = true;
     statusCb(status);
 
+    // === A) PULL REMOTO → LOCAL (incremental)
+    const pullOptsA = {
+      pullAll: !!opts.pullAll,
+      mirrorAll: false,             // nunca borro en A
+      mirrorCollections: [],
+      skipCollections: opts.skipCollections || [],
+      skipCollectionsSet: new Set(), // nada bloqueado aún
+    };
+    const collectionsEnvA = Array.isArray(opts.pullCollections) ? opts.pullCollections.filter(Boolean) : [];
+    const reqA = pullOptsA.pullAll ? collectionsEnvA : collectionsEnvA;
+    const pullCountsA = await pullCollectionsFromRemote(remoteDb, reqA, pullOptsA);
+    status.lastPullCounts = pullCountsA;
+    statusCb(status);
+
+    // === B) PROCESAR OUTBOX (local → remoto)
     const pending = await Outbox.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(200);
     status.pendingOutbox = pending.length;
     statusCb(status);
@@ -845,22 +910,20 @@ async function syncTick(atlasUri, opts = {}, statusCb = () => {}) {
       try {
         await Outbox.updateOne({ _id: item._id }, { status: 'processing' });
 
-        const colName = preColName;
-        if (!colName && !isCompositeRegistrarAbono(item)) {
+        if (!preColName && !/\/api\/abonos\/registrar-abono/i.test(item?.route || '')) {
           await Outbox.updateOne({ _id: item._id }, { status: 'error', error: 'invalid_collection', retries: 6 });
           continue;
         }
 
-        if (['POST','PUT','PATCH'].includes(item.method) && !looksLikeValidDocument(item.document) && !isCompositeRegistrarAbono(item)) {
+        if (['POST','PUT','PATCH'].includes(item.method) && !looksLikeValidDocument(item.document) && !/\/api\/abonos\/registrar-abono/i.test(item?.route || '')) {
           await Outbox.updateOne({ _id: item._id }, { status: 'error', error: 'invalid_document', retries: 6 });
           continue;
         }
 
         await processOutboxItem(remoteDb, item);
-
         await Outbox.updateOne({ _id: item._id }, { status: 'synced', syncedAt: new Date(), error: null });
       } catch (err) {
-        const errMsg = String(err && err.message ? err.message : err).slice(0, 1000);
+        const errMsg = String(err?.message || err).slice(0, 1000);
         const retries = (item.retries || 0) + 1;
 
         const nonRetriableCodes = [
@@ -884,35 +947,28 @@ async function syncTick(atlasUri, opts = {}, statusCb = () => {}) {
           retries,
           status: isNonRetriable || retries >= 6 ? 'error' : 'pending'
         };
-
         await Outbox.updateOne({ _id: item._id }, update);
         console.error('[syncService] error procesando outbox item', item._id, errMsg);
       } finally {
-        if (shouldSkipPullThisTick && preColName) {
-          bulkDeletedCollections.add(preColName);
-        }
+        if (shouldSkipPullThisTick && preColName) bulkDeletedCollections.add(canonicalizeName(preColName));
       }
     }
 
-    const pullCollectionsEnv = Array.isArray(opts.pullCollections) ? opts.pullCollections.filter(Boolean) : [];
-    const pullOpts = {
-      pullAll: !!opts.pullAll,
+    // === C) MINI-PULL FINAL SOLO ESPEJOS (FULL SCAN por colección espejo)
+    // FIX: si mirrorAll=true => pullAll=true para listar todas las colecciones a espejar
+    const pullOptsC = {
+      pullAll: !!opts.mirrorAll,
       mirrorAll: !!opts.mirrorAll,
       mirrorCollections: opts.mirrorCollections || [],
       skipCollections: opts.skipCollections || [],
-      skipCollectionsSet: bulkDeletedCollections
+      skipCollectionsSet: bulkDeletedCollections,
     };
+    // Si pullAll=true, no hace falta pasar lista; listCollections() se usa adentro
+    const reqC = pullOptsC.pullAll ? [] : (pullOptsC.mirrorCollections || []);
+    const pullCountsC = await pullCollectionsFromRemote(remoteDb, reqC, pullOptsC);
 
-    let pullCounts = {};
-    if (pullOpts.pullAll || pullCollectionsEnv.length) {
-      const requested = pullOpts.pullAll
-        ? pullCollectionsEnv
-        : pullCollectionsEnv.filter(c => !bulkDeletedCollections.has(c));
-
-      pullCounts = await pullCollectionsFromRemote(remoteDb, requested, pullOpts);
-      status.lastPullCounts = pullCounts;
-    }
-
+    // combinamos métricas (sin pisar)
+    status.lastPullCounts = { ...status.lastPullCounts, ...pullCountsC };
     status.lastError = null;
     statusCb(status);
 
@@ -927,6 +983,9 @@ async function syncTick(atlasUri, opts = {}, statusCb = () => {}) {
   }
 }
 
+// =======================
+// START / HANDLE
+// =======================
 function startPeriodicSync(atlasUri, opts = {}, statusCb = () => {}) {
   const intervalMs = opts.intervalMs || 30_000;
   console.log('[syncService] iniciando sincronizador. Intervalo:', intervalMs, 'ms');
@@ -935,7 +994,7 @@ function startPeriodicSync(atlasUri, opts = {}, statusCb = () => {}) {
     console.log(`[syncService] DB remota seleccionada: "${SELECTED_REMOTE_DBNAME}"`);
   }
 
-  // primer tick inmediato
+  // Primer tick inmediato (no bloqueante)
   syncTick(atlasUri, opts, statusCb).catch(e => console.error('[syncService] primer tick falló:', e));
 
   const handle = setInterval(() => syncTick(atlasUri, opts, statusCb), intervalMs);
@@ -946,7 +1005,6 @@ function startPeriodicSync(atlasUri, opts = {}, statusCb = () => {}) {
     getStatus: () => ({ ...status }),
     inspectRemote: async (cols = []) => {
       const db = getRemoteDbInstance() || await connectRemote(atlasUri, SELECTED_REMOTE_DBNAME);
-      // si no pidieron cols, devolvemos todas las canónicas detectadas (canonicalizando)
       let collections = cols.length ? cols : (await db.listCollections().toArray()).map(c => canonicalizeName(c.name));
       collections = Array.from(new Set(collections));
       const out = {};
@@ -954,9 +1012,7 @@ function startPeriodicSync(atlasUri, opts = {}, statusCb = () => {}) {
         try {
           let total = 0;
           for (const name of getRemoteNames(c)) {
-            try {
-              total += await db.collection(name).countDocuments();
-            } catch (_) {}
+            try { total += await db.collection(name).countDocuments(); } catch (_) {}
           }
           out[c] = total;
         } catch (e) {

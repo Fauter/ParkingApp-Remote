@@ -45,10 +45,10 @@ async function obtenerProximoTicket() {
 }
 
 async function actualizarEstadoTurnoVehiculo(patente) {
-  const turnos = await Turno.find({ patente });
   const ahora = new Date();
+  const turnos = await Turno.find({ patente: String(patente).toUpperCase() });
   const tieneTurnoActivo = turnos.some(turno =>
-    turno.expirado === false && new Date(turno.fin) > ahora
+    turno.expirado === false && new Date(turno.fin) > ahora && turno.usado === false
   );
   return tieneTurnoActivo;
 }
@@ -88,7 +88,6 @@ async function guardarFotoVehiculo(patente, fotoUrl) {
 }
 
 // ---------------- utils operador desde req.user ----------------
-// IMPORTANTE: si no hay datos válidos, devolver NULL (no string)
 function getOperadorNombre(req) {
   const u = (req && req.user) ? req.user : {};
   const nombre = (u.nombre || '').trim();
@@ -96,7 +95,28 @@ function getOperadorNombre(req) {
   const username = (u.username || '').trim();
   if (nombre || apellido) return `${nombre} ${apellido}`.trim();
   if (username) return username;
-  return null; // <-- clave: no devolvemos "Operador Desconocido" aquí
+  return null;
+}
+
+// ---------------- Helper costo excedente desde fin de turno ----------------
+async function calcularCostoExcedente(tipoVehiculo, desde, hasta) {
+  try {
+    // Intenta usar tu endpoint local de tarifa (ajusta si tu ruta expone /estadia, etc.)
+    const payload = { tipoVehiculo, desde, hasta };
+    const { data } = await axios.post('http://localhost:5000/api/calcular-tarifa', payload);
+    // tolerancia a distintas claves
+    const valor = data?.precio ?? data?.monto ?? data?.total ?? 0;
+    if (Number.isFinite(Number(valor))) return Number(valor);
+  } catch (e) {
+    console.warn('[calcularCostoExcedente] fallback por hora:', e.message);
+  }
+
+  // Fallback: por hora redondeada hacia arriba * precio.estadia
+  const precios = obtenerPrecios();
+  const base = precios[String(tipoVehiculo || '').toLowerCase()]?.estadia || 0;
+  const ms = Math.max(0, new Date(hasta) - new Date(desde));
+  const horas = Math.ceil(ms / (60 * 60 * 1000));
+  return base * horas;
 }
 
 // ---------------- Handlers ----------------
@@ -110,7 +130,6 @@ exports.createVehiculo = async (req, res) => {
       return res.status(400).json({ msg: "Faltan datos" });
     }
 
-    // Prioridad: operador (body) -> req.user -> fallback final
     const operadorNombre =
       (typeof operador === 'string' && operador.trim()) ||
       getOperadorNombre(req) ||
@@ -324,7 +343,6 @@ exports.registrarEntrada = async (req, res) => {
     const ticketNum = ticket || await obtenerProximoTicket();
     const fechaEntrada = entrada ? new Date(entrada) : new Date();
 
-    // Prioridad: operador (body) -> req.user -> fallback
     const operadorNombre =
       (typeof operador === 'string' && operador.trim()) ||
       getOperadorNombre(req) ||
@@ -361,28 +379,57 @@ exports.registrarSalida = async (req, res) => {
       factura: facturaBody,
       tipoTarifa: tipoTarifaBody,
       descripcion: descripcionBody,
-      operador: operadorBody // permitir override explícito si se envía
+      operador: operadorBody
     } = req.body || {};
 
-    // Tomo el doc con session (solo para snapshot coherente)
     const vehiculo = await Vehiculo.findOne({ patente }).session(session);
     if (!vehiculo) throw new Error("Vehículo no encontrado");
     if (!vehiculo.estadiaActual || !vehiculo.estadiaActual.entrada || vehiculo.estadiaActual.salida) {
       throw new Error("No hay estadía activa para este vehículo");
     }
 
-    // Snapshot de la estadía actual + salida y costo final
     const salida = salidaBody ? new Date(salidaBody) : new Date();
+    const entrada = new Date(vehiculo.estadiaActual.entrada);
     const estadiaSnapshot = JSON.parse(JSON.stringify(vehiculo.estadiaActual));
     estadiaSnapshot.salida = salida;
 
-    const costoFinal = (typeof costoBody === 'number' && !Number.isNaN(costoBody))
+    // ✅ Usar turno aunque esté expirado (si cubre parte o todo el rango [entrada, salida]).
+    const patenteUp = String(patente).toUpperCase();
+    const turnoElegible = await Turno.findOneAndUpdate(
+      {
+        patente: patenteUp,
+        usado: false,
+        // superposición con la estadía
+        fin:   { $gt: entrada },
+        inicio:{ $lt: salida }
+      },
+      { $set: { usado: true, updatedAt: new Date() } },
+      { new: true, session, sort: { fin: -1 } }
+    );
+
+    let costoFinal = (typeof costoBody === 'number' && !Number.isNaN(costoBody))
       ? costoBody
       : (typeof estadiaSnapshot.costoTotal === 'number' ? estadiaSnapshot.costoTotal : 0);
 
+    if (turnoElegible) {
+      const inicioCubierto = new Date(Math.max(entrada.getTime(), new Date(turnoElegible.inicio).getTime()));
+      const finCubierto    = new Date(Math.min(salida.getTime(),  new Date(turnoElegible.fin).getTime()));
+
+      const cubreTodo = (inicioCubierto <= entrada) && (finCubierto >= salida);
+      if (cubreTodo) {
+        costoFinal = 0;
+      } else if (salida > turnoElegible.fin) {
+        const desdeExcedente = new Date(Math.max(turnoElegible.fin.getTime(), entrada.getTime()));
+        const hastaExcedente = salida;
+        const costoExcedente = await calcularCostoExcedente(vehiculo.tipoVehiculo || 'auto', desdeExcedente, hastaExcedente);
+        costoFinal = Number(costoExcedente) || 0;
+      } else {
+        costoFinal = 0;
+      }
+    }
+
     estadiaSnapshot.costoTotal = Number(costoFinal) || 0;
 
-    // ATÓMICO: push al historial y UNSET de estadiaActual en la MISMA operación
     await Vehiculo.updateOne(
       { _id: vehiculo._id },
       {
@@ -393,8 +440,6 @@ exports.registrarSalida = async (req, res) => {
       { session }
     );
 
-    // Movimiento consistente con el snapshot
-    // Prioridad: operador (body) -> req.user -> fallback
     const operadorNombre =
       (typeof operadorBody === 'string' && operadorBody.trim()) ||
       getOperadorNombre(req) ||
@@ -418,14 +463,30 @@ exports.registrarSalida = async (req, res) => {
     };
     await Movimiento.create([movimientoDoc], { session });
 
+    // Limpieza rápida del flag "turno" (el cron igual corrige)
+    const ahora = new Date();
+    const sigueConTurnoActivo = await Turno.exists({
+      patente: patenteUp,
+      expirado: false,
+      usado: false,
+      fin: { $gt: ahora }
+    }).session(session);
+    if (!sigueConTurnoActivo) {
+      await Vehiculo.updateOne(
+        { _id: vehiculo._id },
+        { $set: { turno: false, updatedAt: new Date() } },
+        { session }
+      );
+    }
+
     await session.commitTransaction();
 
-    // devolver el vehículo ya limpio
     const vehiculoActualizado = await Vehiculo.findOne({ _id: vehiculo._id }).lean();
     return res.json({
       msg: "Salida registrada",
       estadia: estadiaSnapshot,
       movimiento: movimientoDoc,
+      turnoUsado: turnoElegible ? { _id: turnoElegible._id, inicio: turnoElegible.inicio, fin: turnoElegible.fin } : null,
       vehiculo: vehiculoActualizado
     });
   } catch (err) {

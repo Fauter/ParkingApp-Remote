@@ -4,6 +4,32 @@ const Vehiculo = require('../models/Vehiculo');
 const Movimiento = require('../models/Movimiento');
 const MovimientoCliente = require('../models/MovimientoCliente');
 
+// === Derivar estado de abono por fecha (no persiste, solo adorna la respuesta) ===
+function deriveEstadoAbono(doc) {
+  if (!doc) return doc;
+  const now = new Date();
+  const obj = doc.toObject ? doc.toObject() : { ...doc };
+
+  let fin = obj.finAbono ? new Date(obj.finAbono) : null;
+  if ((!fin || isNaN(fin)) && Array.isArray(obj.abonos) && obj.abonos.length) {
+    for (const a of obj.abonos) {
+      if (a && a.fechaExpiracion) {
+        const f = new Date(a.fechaExpiracion);
+        if (!isNaN(f) && (!fin || f > fin)) fin = f;
+      }
+    }
+  }
+
+  if (fin && !isNaN(fin)) {
+    obj.finAbono = fin;
+    obj.abonado = fin >= now;
+  } else {
+    obj.abonado = false;
+  }
+
+  return obj;
+}
+
 exports.crearClienteSiNoExiste = async (req, res) => {
   const datos = req.body;
   const { nombreApellido, dniCuitCuil } = datos;
@@ -70,7 +96,8 @@ exports.obtenerClientes = async (_req, res) => {
       .populate('vehiculos', '_id patente')
       .populate('movimientos')
       .populate('abonos');
-    res.status(200).json(clientes);
+    const out = clientes.map(deriveEstadoAbono);
+    res.status(200).json(out);
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener clientes', error: err.message });
   }
@@ -79,9 +106,11 @@ exports.obtenerClientes = async (_req, res) => {
 exports.obtenerClientePorNombre = async (req, res) => {
   const { nombreApellido } = req.params;
   try {
-    const cliente = await Cliente.findOne({ nombreApellido }).populate('vehiculos', '_id patente');
+    const cliente = await Cliente.findOne({ nombreApellido })
+      .populate('vehiculos', '_id patente')
+      .populate('abonos'); // 👈 necesario para derivar por fecha si finAbono es null
     if (!cliente) return res.status(404).json({ message: 'Cliente no encontrado' });
-    res.json(cliente);
+    res.json(deriveEstadoAbono(cliente));
   } catch (err) {
     res.status(500).json({ message: 'Error al buscar cliente', error: err.message });
   }
@@ -95,7 +124,7 @@ exports.obtenerClientePorId = async (req, res) => {
       .populate('movimientos')
       .populate('abonos');
     if (!cliente) return res.status(404).json({ message: 'Cliente no encontrado' });
-    res.json(cliente);
+    res.json(deriveEstadoAbono(cliente));
   } catch (err) {
     res.status(500).json({ message: 'Error al buscar cliente por ID', error: err.message });
   }
