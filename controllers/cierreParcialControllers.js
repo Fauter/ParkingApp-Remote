@@ -1,12 +1,21 @@
-// controllers/cierreParcialControllers.js
 const CierreParcial = require('../models/CierreParcial');
-
-// 💡 Ajustá si tu modelo se llama distinto
 const User = require('../models/User');
 
+// Utils
 const isObjectIdString = (v) => typeof v === 'string' && /^[0-9a-fA-F]{24}$/.test(v);
 const pickUserName = (u) => u?.nombre || u?.name || u?.username || u?.email || null;
+const sanitizeStr = (v, max) => {
+  if (v == null) return '';
+  const s = String(v).trim();
+  return max ? s.slice(0, max) : s;
+};
+const numFrom = (v, def = null) => {
+  if (v === '' || v === null || v === undefined) return def;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+};
 
+// Extrae operador desde body (soporta objeto, id string, nombre string)
 async function extractOperador(body) {
   let operadorId = null;
   let operadorNombre = null;
@@ -39,6 +48,7 @@ async function extractOperador(body) {
   return { operadorId, operadorNombre };
 }
 
+// Normaliza salida: resuelve operador a nombre visible
 function normalizeOut(doc, usersById = {}) {
   const d = doc.toObject ? doc.toObject() : doc;
 
@@ -62,15 +72,37 @@ function normalizeOut(doc, usersById = {}) {
   return { ...d, operador: nombre || '---' };
 }
 
+// CREATE
 exports.create = async (req, res) => {
   try {
-    const payload = { ...req.body };
-    const { operadorId, operadorNombre } = await extractOperador(req.body);
+    const payload = {};
 
+    // Campos básicos obligatorios
+    payload.fecha = sanitizeStr(req.body?.fecha);
+    payload.hora  = sanitizeStr(req.body?.hora);
+
+    // Monto
+    const monto = numFrom(req.body?.monto);
+    if (monto == null || monto < 0) {
+      return res.status(400).json({ error: 'Monto inválido' });
+    }
+    payload.monto = monto;
+
+    // Nuevos: nombre(<=60) y texto(<=300)
+    payload.nombre = sanitizeStr(req.body?.nombre, 60);
+    payload.texto  = sanitizeStr(req.body?.texto, 300);
+
+    // Operador
+    const { operadorId, operadorNombre } = await extractOperador(req.body);
     if (operadorId) payload.operadorId = operadorId;
-    if (operadorNombre) {
-      payload.operadorNombre = operadorNombre;
-      payload.operador = operadorNombre;
+    if (operadorNombre) payload.operadorNombre = sanitizeStr(operadorNombre, 120);
+
+    // "operador" (requerido por esquema) = nombre visible
+    payload.operador = payload.operadorNombre || '---';
+
+    // Validaciones mínimas de fecha/hora
+    if (!payload.fecha || !payload.hora) {
+      return res.status(400).json({ error: 'Fecha y hora son obligatorias' });
     }
 
     const saved = await CierreParcial.create(payload);
@@ -80,6 +112,7 @@ exports.create = async (req, res) => {
   }
 };
 
+// GET ALL
 exports.getAll = async (req, res) => {
   try {
     const cierres = await CierreParcial.find().lean();
@@ -87,7 +120,7 @@ exports.getAll = async (req, res) => {
     const ids = [
       ...new Set(
         cierres
-          .map(d => d.operador)
+          .map(d => d.operadorId || d.operador)
           .filter(v => typeof v === 'string' && isObjectIdString(v))
       ),
     ];
@@ -111,16 +144,18 @@ exports.getAll = async (req, res) => {
   }
 };
 
+// GET BY ID
 exports.getById = async (req, res) => {
   try {
     const cierre = await CierreParcial.findById(req.params.id).lean();
     if (!cierre) return res.status(404).json({ error: 'Cierre no encontrado' });
 
     let usersById = {};
-    if (typeof cierre.operador === 'string' && isObjectIdString(cierre.operador)) {
+    const cand = cierre.operadorId || cierre.operador;
+    if (typeof cand === 'string' && isObjectIdString(cand)) {
       try {
-        const u = await User.findById(cierre.operador).select('nombre name username email').lean();
-        if (u) usersById[cierre.operador] = pickUserName(u) || u._id.toString();
+        const u = await User.findById(cand).select('nombre name username email').lean();
+        if (u) usersById[cand] = pickUserName(u) || u._id.toString();
       } catch (_) {}
     }
 
@@ -130,15 +165,28 @@ exports.getById = async (req, res) => {
   }
 };
 
+// UPDATE BY ID
 exports.updateById = async (req, res) => {
   try {
-    const payload = { ...req.body };
-    const { operadorId, operadorNombre } = await extractOperador(req.body);
+    const payload = {};
 
-    if (operadorId) payload.operadorId = operadorId;
-    if (operadorNombre) {
-      payload.operadorNombre = operadorNombre;
-      payload.operador = operadorNombre;
+    if (req.body?.fecha !== undefined) payload.fecha = sanitizeStr(req.body.fecha);
+    if (req.body?.hora  !== undefined) payload.hora  = sanitizeStr(req.body.hora);
+
+    if (req.body?.monto !== undefined) {
+      const n = numFrom(req.body.monto);
+      if (n == null || n < 0) return res.status(400).json({ error: 'Monto inválido' });
+      payload.monto = n;
+    }
+
+    if (req.body?.nombre !== undefined) payload.nombre = sanitizeStr(req.body.nombre, 60);
+    if (req.body?.texto  !== undefined) payload.texto  = sanitizeStr(req.body.texto, 300);
+
+    if (req.body?.operador !== undefined || req.body?.operadorId !== undefined || req.body?.operadorNombre !== undefined) {
+      const { operadorId, operadorNombre } = await extractOperador(req.body);
+      if (operadorId !== null) payload.operadorId = operadorId || undefined;
+      if (operadorNombre !== null) payload.operadorNombre = sanitizeStr(operadorNombre, 120);
+      if (operadorNombre) payload.operador = payload.operadorNombre;
     }
 
     const actualizado = await CierreParcial.findByIdAndUpdate(req.params.id, payload, { new: true });
@@ -150,6 +198,7 @@ exports.updateById = async (req, res) => {
   }
 };
 
+// DELETE ALL
 exports.deleteAll = async (req, res) => {
   try {
     await CierreParcial.deleteMany();
